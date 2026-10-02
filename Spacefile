@@ -1,0 +1,10 @@
+v: 0
+micros:
+    - name: hks-pro
+    src:.
+    engine: python3.9
+    run: flask run --host 0.0.0.0 --port $PORT
+    actions:
+            - id: scanner
+        cron: "* * * * *"
+        endpoint: /api/cron
