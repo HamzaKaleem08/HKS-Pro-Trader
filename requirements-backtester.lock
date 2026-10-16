@@ -1,0 +1,2 @@
+# Compatibility filename; canonical pinned deployment requirements follow.
+-r requirements.txt

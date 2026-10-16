@@ -1,0 +1,12 @@
+entrypoint="app.py"
+run=["sh","-c","HKS_BACKTEST_ENV=production exec gunicorn --config gunicorn.conf.py app:app"]
+modules=["python-3.12"]
+
+[deployment]
+deploymentTarget="autoscale"
+build=["pip","install","-r","requirements.txt"]
+run=["sh","-c","HKS_BACKTEST_ENV=production exec gunicorn --config gunicorn.conf.py app:app"]
+
+[[ports]]
+localPort=8080
+externalPort=80

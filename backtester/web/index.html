@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>HKS Offline Backtester</title><link rel="stylesheet" href="/assets/style.css"><script defer src="/assets/app.js"></script></head>
+<body>
+<header><div><span class="badge">PRIVATE · HISTORICAL RESEARCH</span><h1>HKS Historical Backtester</h1><p>Reusable historical data, individual accounts and a chronological shared portfolio. HKS Normal/Reverse strategy parity is <strong>not verified</strong>.</p></div><span id="connection">Locked</span></header>
+<main>
+<section id="auth"><h2>Private owner access</h2><p>Enter your server-configured owner token over HTTPS (or local loopback during development). It stays in this page's memory; reload to disconnect. No browser storage or exchange credentials.</p><form id="authForm"><label>Owner access token<input id="token" type="password" autocomplete="off" required minlength="32"></label><button>Connect</button></form></section>
+<p id="message" role="status" aria-live="polite">Local research only. No live scanner, wallet or exchange is connected.</p>
+<section id="dataManager"><h2>Historical Data Manager</h2><p id="storageStatus">Connect to inspect persistent storage.</p>
+<div class="layout"><div><h3>Import CSV or official Binance ZIP</h3><p>Import once and reuse across strategies and both modes. No automatic synthetic fallback. ZIP files may include a separate official .CHECKSUM sidecar.</p>
+<form id="dataForm"><div class="pair"><label>Declared market<select id="dataMarket"><option value="USDT_LINEAR_PERPETUAL">Binance USD-M USDT perpetual Futures</option><option value="SPOT">Binance Spot</option></select></label><label>Symbol<input id="dataSymbol" value="BTCUSDT" pattern="[A-Z0-9]+USDT" required></label></div>
+<div class="pair"><label>Candle interval<select id="dataInterval"><option>1m</option><option>5m</option><option>15m</option><option>1h</option></select></label><label>CSV/ZIP, up to24MiB<input id="dataFile" type="file" accept=".csv,.zip" required></label></div>
+<label>Optional official .CHECKSUM<input id="dataChecksum" type="file"></label><label>Source attribution<input id="dataSource" value="Owner-supplied historical file; original retrieval timestamp unknown" maxlength="500" required></label>
+<label class="checkbox"><input id="dataSynthetic" type="checkbox"> This file contains synthetic test fixtures (explicitly labeled).</label><button id="importData" disabled>Validate and store candles</button></form></div>
+<div><h3>Missing-range plan / public collection</h3><p>Uses the same market, symbol and interval selected on the left. Include indicator warm-up before the trading start. Existing candles are reused; only missing ranges are requested. Public connectivity and historical availability depend on the exchange.</p>
+<div class="pair"><label>History start UTC<input type="datetime-local" id="dataStart" value="2025-11-01T00:00"></label><label>History end UTC, exclusive<input type="datetime-local" id="dataEnd" value="2025-11-02T00:00"></label></div><div class="toolbar"><button id="planData" disabled>Show missing ranges</button><button id="fetchData" disabled>Fetch missing batch (max8 requests)</button></div><pre id="dataPlan"></pre></div></div>
+<p id="dataStatus" role="status">No data operation started.</p><label>Search cached symbol / source<input id="dataSearch" type="search"></label><div class="scroll"><table id="dataInventory"></table></div><details><summary>Latest100 import records: progress, checksums and source receipts (all retained in the database)</summary><pre id="importHistory"></pre></details></section>
+<div class="layout">
+<section><h2>Run a historical test</h2><form id="runForm">
+<label>Registered local dataset<select id="dataset" required></select></label><p id="datasetInfo"></p>
+<label id="futuresWarning" hidden><input id="futuresAck" type="checkbox"> I explicitly accept DIAGNOSTIC Futures price replay without verified funding, liquidation or historical exchange filters. This is not a certified Futures financial backtest.</label>
+<label>Immutable saved demonstration version<select id="strategy" required></select></label>
+<label>Mode<select id="mode"><option value="individual">Individual — separate capital for every coin</option><option value="shared">Shared — one chronological portfolio</option></select></label>
+<label>Symbols (Ctrl / tap to select multiple)<select id="symbols" multiple required size="5"></select></label>
+<div class="pair"><label>Start UTC (inclusive)<input type="datetime-local" id="start" required></label><label>End UTC (exclusive)<input type="datetime-local" id="end" required></label></div>
+<div class="pair"><label>Initial capital per account ($)<input id="capital" inputmode="decimal" value="1000" required></label><label>Maximum open positions<input id="capacity" type="number" min="1" max="20" value="3" required></label></div>
+<div class="pair"><label>Fees per fill (basis points)<input id="fees" inputmode="decimal" value="10" required></label><label>Adverse slippage per fill (bp)<input id="slippage" inputmode="decimal" value="2" required></label></div>
+<div class="pair"><label>Planned gross stop risk (% equity)<input id="risk" inputmode="decimal" value="1" required></label><label>Maximum per-trade allocation (% equity)<input id="allocation" inputmode="decimal" value="25" required></label></div>
+<div class="pair"><label>Position sizing<select id="sizing"><option value="risk">Stop-distance risk sizing</option><option value="fixed_notional">Fixed notional, subject to risk/cash limits</option></select></label><label>Fixed notional ($), when selected<input id="fixedNotional" inputmode="decimal" value="100"></label></div>
+<label>Period-end treatment<select id="endPolicy"><option value="KEEP_OPEN">Keep OPEN; mark to market and disclose exposure</option><option value="CLOSE_AT_LAST_CLOSE">Explicit close at final close, with costs</option></select></label>
+<button id="runButton" disabled>Run bounded offline replay</button><p>Capital is fully reserved at 1×. Planned risk excludes fees and gap overshoot. Larger runs stop at documented limits; they are never truncated.</p>
+<progress id="jobProgress" max="100" value="0"></progress><p id="jobStage">No job running. Progress describes processing phases, not a tick-by-tick percentage.</p>
+</form></section>
+<section><h2>Run history</h2><div id="history">Connect to see saved local results.</div>
+<h2>Structured strategy editor</h2><p>This is JSON configuration for the illustrative SMA strategy, not a Python/JavaScript sandbox. Saving creates an immutable version and never activates trading.</p>
+<form id="strategyForm"><label>Definition<textarea id="definition" rows="14" spellcheck="false"></textarea></label><button id="saveStrategy" disabled>Validate &amp; save testable version</button></form>
+<h3>Unsupported</h3><p>Authentic HKS Normal/Reverse, original trailing, partial exits, exchange filters, funding, liquidations, public hosting and live activation are not implemented in this foundation.</p>
+</section></div>
+<section id="result" hidden><h2>Computed report</h2><div id="summary" class="metrics"></div><h3>Per-coin results</h3><div class="scroll"><table id="coins"></table></div><h3>Warnings and reproducibility</h3><details><summary>Costs, data coverage, hashes, accounting and limitations</summary><pre id="metadata"></pre></details><h3>Monthly realized PnL and exit reasons</h3><pre id="breakdowns"></pre>
+<h3>Closed trade journal</h3><div class="toolbar"><label>Search symbol, side or exit<input id="search" type="search"></label><label>Sort<select id="sort"><option value="exit_ms">Exit time</option><option value="entry_ms">Entry time</option><option value="symbol">Symbol</option><option value="net_pnl">Net PnL</option><option value="holding_ms">Duration</option></select></label><label>Direction<select id="direction"><option value="asc">Ascending</option><option value="desc">Descending</option></select></label></div>
+<div class="scroll"><table id="trades"></table></div><div class="toolbar"><button id="previous" type="button">Previous</button><span id="pageInfo"></span><button id="next" type="button">Next</button><button id="exportTrades" type="button">Export trades CSV</button><button id="exportCoins" type="button">Export coins CSV</button><button id="exportDecisions" type="button">Export decisions CSV</button></div>
+<h3>Open positions (not counted as closed wins/losses)</h3><pre id="openPositions"></pre>
+</section>
+<dialog id="tradeDialog"><h2>Trade detail</h2><pre id="tradeDetail"></pre><button id="closeDetail">Close</button></dialog>
+</main><footer>Separate research application · No production data · No orders · Candle execution is an assumption, not a confirmed exchange fill</footer>
+</body></html>

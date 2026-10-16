@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+.backtester-state/
+.backtester-*/
+wallet.json
+cache.json
+*.db
+*.db-*
+*.sqlite3*
+.env
+.env.*
+!*.example
+local-datasets/
+review/

@@ -1,0 +1,9 @@
+{
+  "exchange": "BINANCE",
+  "market": "USDT_LINEAR_PERPETUAL",
+  "symbol": "BTCUSDT",
+  "interval": "15m",
+  "synthetic": false,
+  "source": "Owner-supplied official monthly ZIP; original retrieval timestamp unknown",
+  "retrieved_at": null
+}
