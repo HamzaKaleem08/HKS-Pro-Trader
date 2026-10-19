@@ -1,0 +1,15 @@
+✔ pre-fix worker ready is rejected before on_bar execution (2.533711ms)
+✔ only matching Context contract, timeframes and runtime identity are accepted (0.304069ms)
+✔ verified runtime requests carry the exact content identity and disable HTTP cache reuse (45.373368ms)
+✔ old cached bytes cannot execute under a new runtime checksum (1.419823ms)
+✔ missing runtime asset and invalid pin fail closed (0.898907ms)
+✔ new bootstrap and module URLs are pinned consistently by the actual build (154.990738ms)
+✔ offline versioned entry and extensionless Pages documents use their verified cached HTML (4.352218ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 223.299455

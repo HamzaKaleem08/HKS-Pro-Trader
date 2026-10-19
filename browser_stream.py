@@ -8,6 +8,8 @@ opaque and restored only in the isolated, trusted-code strategy worker.
 import ast
 import inspect
 import json
+import math
+import time
 from collections import deque
 from dataclasses import fields
 from decimal import Decimal, localcontext
@@ -90,6 +92,12 @@ def capture(scope, next_ms):
         raise ValueError('64 MiB financial checkpoint bound exceeded; no truncated checkpoint')
     return result
 
+def checkpoint_event(scope, next_ms):
+    started = time.monotonic()
+    snapshot = capture(scope, next_ms)
+    return {'kind': 'CHECKPOINT', 'snapshot': snapshot,
+            'capture_ms': (time.monotonic() - started) * 1000}
+
 def restore(snapshot, strategy):
     if snapshot.get('schema') != 1 or type(snapshot.get('next_ms')) is not int:
         raise ValueError('unsupported checkpoint schema')
@@ -105,8 +113,8 @@ def make_iterator():
     tree = ast.parse(inspect.getsource(simulation._simulate))
     fn = tree.body[0]
     fn.name = '_checkpoint_iterator'
-    fn.args.kwonlyargs += [ast.arg(arg='resume'), ast.arg(arg='checkpoint_every')]
-    fn.args.kw_defaults += [ast.Constant(None), ast.Constant(120)]
+    fn.args.kwonlyargs += [ast.arg(arg=n) for n in ('resume','checkpoint_every','work_steps','yield_seconds')]
+    fn.args.kw_defaults += [ast.Constant(None), ast.Constant(120), ast.Constant(240), ast.Constant(1.0)]
     loop = next(n for n in fn.body if isinstance(n, ast.For) and isinstance(n.target, ast.Tuple)
                 and [getattr(x, 'id', None) for x in n.target.elts] == ['ts', 'values'])
     before_streams = next(i for i, n in enumerate(fn.body) if isinstance(n, ast.Assign)
@@ -126,31 +134,48 @@ if resume is not None:
     position_count = _restored['position_count']
     warmup_start = resume['next_ms']
 _completed = 0
+_work = 0
+_first_checkpoint = resume is not None
+_chunk_started = time.monotonic()
 '''
     fn.body[before_streams:before_streams] = ast.parse(restore_src).body
     loop.body += ast.parse('''
 _completed += 1
-if _completed % checkpoint_every == 0:
-    yield {'kind': 'CHECKPOINT', 'snapshot': capture(locals(), end)}
+_work += len(bars)
+_work_boundary = _work >= work_steps or time.monotonic() - _chunk_started >= yield_seconds
+if _completed % checkpoint_every == 0 or _work_boundary:
+    if _completed % checkpoint_every == 0 or not _first_checkpoint:
+        yield checkpoint_event(locals(), end)
+        _first_checkpoint = True
+    else:
+        yield {'kind': 'PROGRESS', 'next_ms': end}
+    _work = 0
     started = time.monotonic()
+    _chunk_started = started
 ''').body
     # A generator return retains the original result (including its result hash).
     ast.fix_missing_locations(tree)
-    namespace = dict(vars(simulation), capture=capture, restore=restore)
+    namespace = dict(vars(simulation), checkpoint_event=checkpoint_event, restore=restore)
     exec(compile(tree, '<pinned-v4-checkpoint-scheduling>', 'exec'), namespace)
     return namespace[fn.name]
 
 ITERATE = make_iterator()
 
-def chunks(dataset, strategy, config, resume=None, checkpoint_every=120):
+def chunks(dataset, strategy, config, resume=None, checkpoint_every=120,
+           work_steps=240, yield_seconds=1.0):
     if type(checkpoint_every) is not int or not 1 <= checkpoint_every <= 1440:
         raise ValueError('checkpoint interval must be 1–1440 timestamps')
+    if type(work_steps) is not int or not 1 <= work_steps <= 10000:
+        raise ValueError('work limit must be 1–10000 symbol-candle steps')
+    if type(yield_seconds) not in (int,float) or not math.isfinite(yield_seconds) or not 0 < yield_seconds <= 5:
+        raise ValueError('work-time target must be positive and at most five seconds')
     # Keeping this context inside a generator prevents JS scheduling from
     # changing Decimal precision between chunks.
     with localcontext() as context:
         context.prec = 34
         it = ITERATE(dataset, strategy, config, None, resume=resume,
-                     checkpoint_every=checkpoint_every)
+                     checkpoint_every=checkpoint_every,work_steps=work_steps,
+                     yield_seconds=yield_seconds)
         while True:
             try:
                 yield next(it)

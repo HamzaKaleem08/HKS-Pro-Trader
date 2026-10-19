@@ -1,0 +1,28 @@
+{
+  "synthetic_only": true,
+  "market_downloads": false,
+  "page_errors": [],
+  "excluded_startup_fixture_restored_only_in_temporary_storage": true,
+  "browser_version": "151.0.7922.173",
+  "passed": true,
+  "financial_result_exact": true,
+  "result_hash": "12e0297e42ba38c8a3c8331d703dd9e108b42e3fe1387c36f60d2f4a1ffc8bb2",
+  "closed_exit_segments": 2,
+  "ending_synthetic_equity": "1017.5",
+  "csv_and_details": true,
+  "reload_restores_report": true,
+  "context_api": {
+    "type": "ready",
+    "contextContract": "HKS_BROWSER_COMPLETED_CONTEXT/2",
+    "contextTimeframes": [
+      "15m",
+      "1h"
+    ],
+    "runtimeManifest": "0cbd6447536d9caf13aeb5a84710a1cb0df7f0a3df1f522a050c9fc4a5d8c747",
+    "wasmBytes": 20971520,
+    "origin": "null",
+    "python": "3.12.7 (main, Jun  4 2025, 22:38:17) [Clang 19.0.0git (https:/github.com/llvm/llvm-project 0a8cd1ed1f4f35905df318015b"
+  },
+  "mobile_viewport_no_overflow": true,
+  "physical_android_tested": false
+}

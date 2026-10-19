@@ -11,7 +11,7 @@ async function start(){
    w.addEventListener('statechange',state);state();
   });
  }
- await import('./app.js?sha256=f94a5e5947957996eddc67fb776a9b50065b98683f867df3d83d6ed24cfcee06');
+ await import('./app.js?sha256=781f70604532278264f9e9a204679a64cb3db20333e70410dedb5fee6b66b9e8');
 }
 start().catch(error=>{
  const box=document.getElementById('message');

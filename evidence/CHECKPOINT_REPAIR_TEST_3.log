@@ -1,0 +1,10 @@
+✔ resume progress uses the verified cursor, including zero and warm-up boundaries (0.937765ms)
+✔ work-only yields advance before another NEXT without persisting a fake checkpoint (190.304888ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 196.76886

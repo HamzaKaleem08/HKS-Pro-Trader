@@ -96,11 +96,12 @@ onmessage = async ({data}) => {
       catch(e){result=JSON.stringify({error:String(e).slice(-700)});}
       postMessage({type:'reply',id:data.id,result,wasmBytes:py._module.HEAP8.buffer.byteLength});
     } else if(data.type==='STEP' && ready){
+      const started=performance.now();
       py.globals.set('_frame',data.frame);
       let result;
       try { result=py.runPython('_browser_step(_frame)'); }
       catch(e){result=JSON.stringify({error:String(e).slice(-700)});}
-      postMessage({type:'reply',id:data.id,result,wasmBytes:py._module.HEAP8.buffer.byteLength});
+      postMessage({type:'reply',id:data.id,result,wasmBytes:py._module.HEAP8.buffer.byteLength,stepMs:performance.now()-started});
     }
   } catch(e){postMessage({type:'fatal',error:String(e).slice(-1200)});}
 };

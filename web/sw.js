@@ -1,4 +1,4 @@
-const CACHE='hks-premium-static-89075a3d4ba8f4e6';
+const CACHE='hks-premium-static-ab4e8c4b32fe3090';
 self.addEventListener('install',event=>event.waitUntil((async()=>{
   const assets=await (await fetch('offline-assets.json',{cache:'no-store'})).json();
   // A new cache must contain this build, not fresh HTTP-cache entries from

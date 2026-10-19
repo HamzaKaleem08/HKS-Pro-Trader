@@ -1,0 +1,45 @@
+{
+  "commands": [
+    {
+      "command": [
+        "python",
+        "-B",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-v"
+      ],
+      "exit_code": 0,
+      "seconds": 8.009775011974853
+    },
+    {
+      "command": [
+        "node",
+        "tests/test_context_delivery.mjs"
+      ],
+      "exit_code": 0,
+      "seconds": 0.3687151589838322
+    },
+    {
+      "command": [
+        "node",
+        "tests/test_replay_consent.mjs"
+      ],
+      "exit_code": 0,
+      "seconds": 0.16505269199842587
+    },
+    {
+      "command": [
+        "node",
+        "tests/test_replay_scheduling.mjs"
+      ],
+      "exit_code": 0,
+      "seconds": 0.31994559400482103
+    }
+  ],
+  "historical_data_restored_only_in_disposable_copy": true,
+  "candidate_static_build": "ab4e8c4b32fe3090",
+  "passed": true
+}

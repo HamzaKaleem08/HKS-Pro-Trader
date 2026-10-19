@@ -1,6 +1,11 @@
-# HKS-Pro-Trader — published Browser Backtester source backup
+# HKS-Pro-Trader — local 20-coin checkpoint repair candidate
 
-This standalone backup branch preserves the currently published Cloudflare
+Local branch: `fix/browser-20coin-checkpoint-20261019`.
+Baseline: `backup/cloudflare-browser-backtester-20261019`, commit
+`b06008eb64c482b0d4e507ed5f81495385e9c25e`. This candidate is **not pushed or
+deployed**. The original backup documentation is preserved in `docs/history/`.
+
+The underlying source snapshot preserves the published Cloudflare
 Browser Backtester, including its Premium UI, browser Python Sandbox, actual
 completed-15m/1H Context API, isolated browser workers, Decimal financial kernel,
 tests, configuration, documentation and exact verified OLD SMC Reverse example.
@@ -8,15 +13,16 @@ tests, configuration, documentation and exact verified OLD SMC Reverse example.
 Published build: `3f09eb4b-f8d9-4679-9c75-e08ccd2b49db` (19 October 2026 UTC).
 Site: https://hks-pro-trader-browser-staging.pages.dev/?sandbox=completed-context-v2
 
-All included files under `web/` are the actual published files, byte-for-byte.
-See `evidence/PUBLISHED_SOURCE_MATCH.json` for independent HTTPS comparisons.
-Cloudflare's special `_headers` configuration is verified by its live response
-headers. No website publication, `main` change, or trading-logic change is part
-of this backup. The Pages project uses direct uploads and has no Git integration.
+`evidence/PUBLISHED_SOURCE_MATCH.json` documents the unchanged **baseline** HTTPS
+comparison, not a claim that this local candidate has been published. Scheduling,
+resume display, lossless serialization and profiling changes are described in
+`CHECKPOINT_REPAIR_REPORT.md`; runtime hashes and static-cache references have
+been rebuilt together. No website publication, `main` change or trading-logic
+change is part of this task. Pages uses direct uploads with no Git integration.
 
 ## What is included
 
-- `web/`: exact production static application and pinned Pyodide 0.27.7 assets.
+- `web/`: local static application candidate and unchanged Pyodide 0.27.7 assets.
 - `runtime/`: all 19 readable Python modules embedded in `web/kernel.json`.
 - Root `browser_adapter.py`, `browser_stream.py`, `serve.py`, `wrangler.toml`:
   the original working adapters, local headers server and static Pages config.
@@ -26,7 +32,7 @@ of this backup. The Pages project uses direct uploads and has no Git integration
   financial regression oracles; these contain no production wallets.
 - Integrity records, current verification summaries and original documentation.
   Documents in `docs/history/` describe earlier stages; use this README and the
-  current `SMC_CONTEXT_DELIVERY_V2_REPORT.md` for present deployment status.
+  `CHECKPOINT_REPAIR_REPORT.md` for the current candidate's verification status.
 
 ## Deliberate data exclusions
 
@@ -46,6 +52,9 @@ this branch. No historical dataset is acquired automatically by backup tools.
 ```powershell
 git clone --single-branch --branch backup/cloudflare-browser-backtester-20261019 https://github.com/HamzaKaleem08/HKS-Pro-Trader.git hks-browser-backup
 cd hks-browser-backup
+git switch -c fix/browser-20coin-checkpoint-20261019 b06008eb64c482b0d4e507ed5f81495385e9c25e
+# Apply the separately supplied, reviewed CHECKPOINT_REPAIR.patch locally.
+git apply C:\path\to\CHECKPOINT_REPAIR.patch
 python tools/verify_source_backup.py
 python serve.py --port 8097
 ```
@@ -63,7 +72,8 @@ data-incomplete directory as a replacement live website.
 
 `SOURCE_MANIFEST.json` records every source file and its role.
 `SHA256SUMS.txt` hashes every payload file and the manifest; it excludes itself
-to avoid a self-referential checksum. The Git commit pins the whole snapshot.
+to avoid a self-referential checksum. The baseline Git commit pins the original
+snapshot; this uncommitted candidate is identified by its manifest and patch hashes.
 The verification tool checks checksums, runtime-source parity, pinned kernel
 modules, the exact example hash, and absence of prohibited state/data paths.
 
@@ -79,11 +89,13 @@ python -B -m unittest discover -s tests -p test_completed_context.py -v
 python -B -m unittest discover -s tests -p test_futures_consent.py -v
 python -B -m unittest discover -s tests -p test_sandbox_context_api.py -v
 python -B -m unittest discover -s tests -p test_smc_compat.py -v
+python -B -m unittest discover -s tests -p test_workload_chunks.py -v
 node tests/test_replay_consent.mjs
 node tests/test_context_delivery.mjs
+node tests/test_replay_scheduling.mjs
 ```
 
-The complete 56-test Python suite additionally checks the excluded historical
+The complete Python suite additionally checks the excluded historical
 files. After restoring those, run `python -B -m unittest discover -s tests -v`.
 An optional 128-file legacy-archive integrity check explicitly skips if that
 separate original V4 source is absent. Historical QA tools may also require
@@ -105,7 +117,7 @@ hour. Four-year execution remains unavailable. Results are diagnostic Futures
 price replays: historical filters, funding and liquidation are not certified.
 Individual mode uses independent wallets; it is not one shared account.
 
-Verified live: both BTC/ETH three-day modes, Reverse SHORT examples, journals,
+Previously verified on the baseline live build: both BTC/ETH three-day modes, Reverse SHORT examples, journals,
 CSV, cache reuse, checkpoint/reload/new-browser-process recovery. Physical
 Android and fully offline Python recomputation remain unverified. Completed
 reports can reopen offline in the verified browser path.
@@ -113,3 +125,25 @@ reports can reopen offline in the verified browser path.
 See `DEPLOYMENT.md`, `SECURITY_REVIEW.md`, `TEST_RESULTS.md`,
 `STRATEGY_API.md` and `DEPENDENCIES.md`. Publishing remains an owner action and
 is not performed by cloning or verifying this branch.
+
+## Checkpoint and cache compatibility
+
+Worker computation now yields only after a completed global timestamp, targeting
+one second or approximately 240 symbol-candle steps. The durable 120-timestamp
+checkpoint cadence remains, with an additional early checkpoint. Computation
+yields do not serialize or persist the whole history. The 32-second watchdog,
+30-second native replay guard, callback limits and one-hour job limit are not
+increased. A single timestamp and snapshot/finalization can exceed the target;
+the existing hard deadlines still apply.
+
+Same-build resume restores the verified financial cursor and isolated strategy
+state. Work before that cursor is skipped. Any work after the last durable
+checkpoint can be lost on interruption and must be recalculated. The UI restores
+the saved percentage immediately; it does not claim unsaved work is durable.
+
+Runtime identities remain strict. Earlier-build checkpoints and completed
+reports are retained; old checkpoints require their original verified build.
+There is no automatic migration or relaxed hash check. A new job explicitly
+uses the candidate and reuses unchanged verified candle caches. IndexedDB schema,
+OPFS filenames and dataset identities are unchanged. See the repair report for
+actual local upgrade, rollback, genuine-replay and restart test evidence.

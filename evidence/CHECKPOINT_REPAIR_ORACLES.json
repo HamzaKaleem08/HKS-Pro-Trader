@@ -1,0 +1,107 @@
+{
+  "suite": "synthetic",
+  "genuine_market": "BINANCE USD-M USDT perpetual Futures, diagnostic only",
+  "start_utc": "2025-11-28T00:00:00Z",
+  "end_exclusive_utc": "2025-12-01T00:00:00Z",
+  "physical_android_tested": false,
+  "owner_browser_storage_accessed": false,
+  "external_network_requests": false,
+  "runs": {
+    "genuine_20coin_30min": {
+      "passed": true,
+      "expected_invalid": false
+    },
+    "genuine_20coin_6hours": {
+      "passed": true,
+      "expected_invalid": false
+    },
+    "genuine_2coin_1day": {
+      "passed": true,
+      "expected_invalid": false
+    },
+    "genuine_2coin_1day_individual": {
+      "passed": true,
+      "expected_invalid": false
+    },
+    "genuine_2coin_1hour": {
+      "passed": true,
+      "expected_invalid": false
+    },
+    "genuine_2coin_1hour_individual": {
+      "passed": true,
+      "expected_invalid": false
+    },
+    "synthetic_atr_gap": {
+      "passed": true,
+      "expected_invalid": false
+    },
+    "synthetic_hand_partial": {
+      "passed": true,
+      "expected_invalid": false
+    },
+    "synthetic_invalid_decimal": {
+      "passed": true,
+      "expected_invalid": true
+    },
+    "synthetic_invalid_stop": {
+      "passed": true,
+      "expected_invalid": true
+    },
+    "synthetic_long_trailing": {
+      "passed": true,
+      "expected_invalid": false
+    },
+    "synthetic_multicoin_costs_individual": {
+      "passed": true,
+      "expected_invalid": false
+    },
+    "synthetic_multicoin_costs_shared": {
+      "passed": true,
+      "expected_invalid": false
+    },
+    "synthetic_short_trailing": {
+      "passed": true,
+      "expected_invalid": false
+    }
+  },
+  "page_errors": [],
+  "peak_chromium_rss_bytes": 0,
+  "verified_source_inputs": 26,
+  "strategy_sha256": "d967f440b871d6fe14d0b65ad8c051fbd984fe366676f0be0117eddeb282d53e",
+  "local_origin": "http://127.0.0.1:45823",
+  "symbols": [
+    "ADAUSDT",
+    "APTUSDT",
+    "ARBUSDT",
+    "ATOMUSDT",
+    "AVAXUSDT",
+    "BCHUSDT",
+    "BNBUSDT",
+    "BTCUSDT",
+    "DOGEUSDT",
+    "DOTUSDT",
+    "ETHUSDT",
+    "FILUSDT",
+    "LINKUSDT",
+    "LTCUSDT",
+    "NEARUSDT",
+    "OPUSDT",
+    "SOLUSDT",
+    "SUIUSDT",
+    "TRXUSDT",
+    "XRPUSDT"
+  ],
+  "source_hash": "57ffc4a7599f96b5bf206701cad86a18a540040c27f64c017bb8e8a00aa8d65b",
+  "browser_version": "151.0.7922.173",
+  "cold_cache": {
+    "downloaded": 20,
+    "reused": 0
+  },
+  "cache_seconds": 0.8203055530029815,
+  "warm_cache": {
+    "downloaded": 0,
+    "reused": 20
+  },
+  "candle_cache_fingerprint_unchanged": true,
+  "passed": true
+}

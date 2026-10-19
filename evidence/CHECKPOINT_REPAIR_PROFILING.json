@@ -1,0 +1,69 @@
+{
+  "scope": "Genuine combined 20-coin, 3-day Individual run. Timings overlap; do not sum callback and RPC times.",
+  "metrics": {
+    "calls": 86420,
+    "sessionCalls": 86420,
+    "initializationMs": 6276.664999991655,
+    "calculationMs": 911467.3999998868,
+    "chunkMs": 8384.77500000596,
+    "worstChunkMs": 21808.885000020266,
+    "jsonParseMs": 356.1899999976158,
+    "profile": {
+      "advanceMs": 3389.2849999999726,
+      "callbacks": {
+        "calls": 86420,
+        "contextMs": 32872.10029201432,
+        "decisionDecodeMs": 4749.345021007033,
+        "frameEncodingMs": 92286.65498399429,
+        "rpcWaitMs": 395667.42962998984
+      },
+      "financialCaptureMs": 0,
+      "serializationMs": 599.6449989999064,
+      "viewMs": 709.2600010000751
+    },
+    "financialWasmBytes": 560594944,
+    "loaded": {
+      "contextInitializationMs": 355.50000000000017,
+      "dataset_hash": "3e5b96c2059f4a8197931c21230b30350e93a80582bfcd436b02da253ced239a",
+      "inputValidationMs": 3136.5099999999998,
+      "loaded_candles": 112800,
+      "next_ms": 1764288000000,
+      "restored_calls": 0
+    },
+    "scheduling": {
+      "chunks": 517,
+      "checkpoints": 37,
+      "callbackMs": 328132.15499833226,
+      "callbackPythonMs": 182257.60001388192,
+      "strategySnapshotMs": 784.4899999201298,
+      "checkpointPersistenceMs": 29260.02500012517,
+      "worstCheckpointPersistenceMs": 1773.955000013113,
+      "sandboxInitializationMs": 3169.800000011921
+    },
+    "wallMs": 1008878.0549999774,
+    "strategyWasmBytes": 20971520,
+    "resumed": false
+  },
+  "by_message_kind": {
+    "progress": {
+      "messages": 480,
+      "worst_worker_ms": 5193.719999998808
+    },
+    "checkpoint": {
+      "messages": 37,
+      "worst_worker_ms": 21808.885000020266
+    },
+    "done": {
+      "messages": 1,
+      "worst_worker_ms": 8384.77500000596
+    }
+  },
+  "financial_capture_ms_total": 167996.1549990002,
+  "financial_capture_ms_max": 10110.525000000052,
+  "checkpoint_wire_serialization_ms_total": 44777.93500099989,
+  "ui_report_json_gzip_ms": 871.8899999856949,
+  "ui_report_write_readback_ms": 16.564999997615814,
+  "compressed_report_bytes": 501410,
+  "peak_sampled_chromium_rss_bytes": 4853465088,
+  "rss_caveat": "Campaign-wide maximum of summed Chromium process RSS samples, including preserved complete controls; shared pages may be counted twice. Not a browser hard memory limit or a PSS measurement."
+}

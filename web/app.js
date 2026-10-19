@@ -1,5 +1,5 @@
 import {CandleStore,sha256} from './storage.js';
-import {BrowserEngine,SandboxClient,runtimeIdentity} from './client.js?sha256=7825b1afc1c75f57029afd13ad362e1797ac74883d0af87b2f5e75f5a048b0db';
+import {BrowserEngine,SandboxClient,runtimeIdentity,replayProgress} from './client.js?sha256=7d61335b4336ab631be1d5e6bb1baccd967de442b14eded4054747e285ccf7ea';
 import {assertReplayConsent,FUTURES_CONSENT_ID,consentPreference,savedConsent} from './replay-consent.js';
 const $=id=>document.getElementById(id),store=await new CandleStore().init();
 const text=(id,v)=>$(id).textContent=String(v??'—'),money=v=>v==null?'—':'$'+Number(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -131,7 +131,9 @@ function clearResult(){currentResult=null;currentAnswer=null;$('result').hidden=
 async function report(j){const d=await store.readDataset(j.report);return JSON.parse(await new Response(new Blob([d.bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).text());}
 async function showJob(id){
  if(running)throw Error('Wait for the running job or cancel before changing reports');job=await store.get('jobs',id);clearResult();
- text('jobStage',job.status+(job.error?' · '+job.error:''));$('retry').disabled=!job.checkpoint||job.status==='COMPLETE';
+ text('jobStage',job.status+(job.error?' · '+job.error:''));$('retry').disabled=!job.checkpoint||job.status==='COMPLETE'||job.sourceHash!==sourceHash;
+ $('jobProgress').value=job.status==='COMPLETE'?100:replayProgress(job.checkpoint?.next_ms,job.request.config);
+ if(job.sourceHash&&job.sourceHash!==sourceHash){$('retry').disabled=true;message('This saved job uses an older runtime identity. Its report and checkpoint are preserved; resume requires the original verified build. Start a new test explicitly to use this build.');}
  if(job.status==='COMPLETE'){currentAnswer=await report(job);currentResult={...currentAnswer.result,...currentAnswer.view};renderResult(currentResult);page=1;renderTrades();}
 }
 async function run(resumeId=null,override=null){
@@ -153,12 +155,14 @@ async function run(resumeId=null,override=null){
    assertReplayConsent(bundle.config,bundle.manifest.market,consent,!!resumeId);
    const identity=await sha256(new TextEncoder().encode(JSON.stringify({sourceHash,bundle})));
    let checkpoint;
-   if(resumeId){j=await store.get('jobs',resumeId);if(j.identity!==identity)throw Error('Source, settings or input identity changed; old checkpoint cannot resume');checkpoint=await store.checkpoint(j);}
+   if(resumeId){j=await store.get('jobs',resumeId);if(j.identity!==identity)throw Error('Source, settings or input identity changed; old checkpoint cannot resume. Saved data is preserved; use the original verified build or start a new test explicitly.');checkpoint=await store.checkpoint(j);}
    else j={id:crypto.randomUUID(),created:Date.now(),request:req||{source:override.id,definition:override.definition,symbols:override.manifest.files.map(x=>x.symbol).sort(),config:override.config,interval:'1m'},identity,sourceHash};
-   job={...j,status:'RUNNING',error:null};await store.put('jobs',job);prepared=true;text('jobStage','RUNNING · starting isolated browser workers');$('jobProgress').value=0;
+   job={...j,status:'RUNNING',error:null};await store.put('jobs',job);prepared=true;
+   text('jobStage',checkpoint?'RUNNING · restoring verified cursor '+utc(checkpoint.finance.next_ms):'RUNNING · starting isolated browser workers');
+   $('jobProgress').value=replayProgress(checkpoint?.finance.next_ms,bundle.config);
    engine=new BrowserEngine();
    const answer=await engine.run(bundle,p=>{
-    const progress=p.next_ms?Math.max(0,Math.min(100,(p.next_ms-bundle.config.start_ms)/(bundle.config.end_ms-bundle.config.start_ms)*100)):$('jobProgress').value;
+    const progress=Number.isFinite(p.next_ms)?replayProgress(p.next_ms,bundle.config):$('jobProgress').value;
     $('jobProgress').value=progress;text('jobStage','RUNNING · '+p.calls.toLocaleString()+' callbacks'+(p.checkpoint?' · checkpoint saved '+utc(p.next_ms):''));
    },{resume:checkpoint,onCheckpoint:async snapshot=>{job=await store.saveCheckpoint(job,snapshot);window.dispatchEvent(new CustomEvent('hks-checkpoint',{detail:{job:job.id,next_ms:snapshot.finance.next_ms}}));}});
    const raw=JSON.stringify(answer);if(new TextEncoder().encode(raw).length>64*1024**2)throw Error('64MiB completed report bound exceeded; no incomplete success');
@@ -171,7 +175,7 @@ async function run(resumeId=null,override=null){
   }catch(e){
    if(prepared&&job?.status==='RUNNING'){job={...job,status:/Cancel|abort/i.test(e.message)?'CANCELLED':'FAILED',error:e.message};await store.put('jobs',job);}
    text('jobStage',(prepared?job.status:'REJECTED')+' · '+e.message);message(e.message);throw e;
-  }finally{busy(false);engine=null;abort=null;$('retry').disabled=!job?.checkpoint||job.status==='COMPLETE';await history();await storageStatus();}
+  }finally{busy(false);engine=null;abort=null;$('retry').disabled=!job?.checkpoint||job.status==='COMPLETE'||job.sourceHash!==sourceHash;await history();await storageStatus();}
  });
  return currentAnswer;
 }
@@ -262,7 +266,7 @@ if(last){applyRequest(last.request);await showJob(last.job);}else{
 $('diagnostic').checked=savedConsent(await store.get('settings',FUTURES_CONSENT_ID),last?.request.config.allow_uncertified_futures);
 consentStatus();
 for(const id of ['runButton','saveStrategy','validate','restore','refresh','saveWatchlist'])$(id).disabled=false;
-$('restore').disabled=!last;$('retry').disabled=!job?.checkpoint||job.status==='COMPLETE';$('cancel').disabled=true;
+$('restore').disabled=!last;$('retry').disabled=!job?.checkpoint||job.status==='COMPLETE'||job.sourceHash!==sourceHash;$('cancel').disabled=true;
 text('connection',crossOriginIsolated?'Browser Python ready':'Isolation headers missing');text('runtimeStatus','Context API v2 · Completed 15m / 1H candles · Trusted code only. 30s per computation chunk; 3s per strategy callback; 1h foreground session. No hard browser memory cap.');
 if(!crossOriginIsolated){$('runButton').disabled=true;message('Unavailable: COOP/COEP headers required. There is no unsafe fallback.');}
 await history();await storageStatus();

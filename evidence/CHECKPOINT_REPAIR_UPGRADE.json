@@ -1,0 +1,18 @@
+{
+  "local_only": true,
+  "owner_storage_accessed": false,
+  "external_network_requests": false,
+  "baseline_source_hash": "158621d515ab70e0a3b1759f6d73db2c6818481ac29ce0fba71ed7cb2e07e6a4",
+  "direct_resume_rejection": "Source, settings or input identity changed; old checkpoint cannot resume. Saved data is preserved; use the original verified build or start a new test explicitly.",
+  "candidate_source_hash": "57ffc4a7599f96b5bf206701cad86a18a540040c27f64c017bb8e8a00aa8d65b",
+  "old_runtime_rejected_before_strategy_restore": true,
+  "old_checkpoint_unchanged": true,
+  "old_report_opens_after_upgrade": true,
+  "cache_and_reports_preserved": true,
+  "disabled_resume_has_explanation": true,
+  "original_build_can_resume_its_old_checkpoint": true,
+  "rollback_no_callback_before_saved_cursor": true,
+  "original_completed_report": "701a2d8b-67a1-4ac3-8397-2c67a4b2ff00",
+  "legacy_checkpoint_cursor": 1764295080000,
+  "passed": true
+}

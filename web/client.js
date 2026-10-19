@@ -1,5 +1,5 @@
 import {verifiedBytes,assertContextAPI,CONTEXT_CONTRACT} from './runtime-integrity.js?sha256=1801327ff8bab8700e939283b7b3b249fc3f1903fb5e84ac2c6364d1c9f20737';
-const MANIFEST_SHA256='bcbd3f93a60bea82edbbb1cf50b24ae5fe87aa2b0e6fa48756bfb1ebcae5165c';
+const MANIFEST_SHA256='0cbd6447536d9caf13aeb5a84710a1cb0df7f0a3df1f522a050c9fc4a5d8c747';
 let runtimePromise;
 const td=new TextDecoder();
 const names=['pyodide.asm.js','pyodide.asm.wasm','python_stdlib.zip','pyodide-lock.json'];
@@ -36,7 +36,7 @@ export class SandboxClient{
           if(data.type==='fatal'){this.rejectInit?.(Error(data.error));for(const x of this.pending.values())x.reject(Error(data.error));this.pending.clear();}
           if(data.type==='reply'){
             const p=this.pending.get(data.id);if(!p)return;clearTimeout(p.timer);this.pending.delete(data.id);
-            this.lastWasmBytes=data.wasmBytes;p.resolve(data.result);
+            this.lastWasmBytes=data.wasmBytes;this.lastStepMs=data.stepMs;p.resolve(data.result);
           }
         };
         this.port.start();this.frame.contentWindow.postMessage({type:'ATTACH',source:m.source},'*',[channel.port2]);
@@ -66,6 +66,10 @@ export class SandboxClient{
     for(const p of this.pending?.values()||[]){clearTimeout(p.timer);p.reject(Error('Sandbox stopped'));}this.pending?.clear();
   }
 }
+export function replayProgress(cursor,config){
+  if(!Number.isFinite(cursor)||!Number.isFinite(config.start_ms)||!Number.isFinite(config.end_ms)||config.end_ms<=config.start_ms)return 0;
+  return Math.max(0,Math.min(100,(cursor-config.start_ms)/(config.end_ms-config.start_ms)*100));
+}
 export class BrowserEngine{
   async validate(definition){
     const m=await material(),worker=new Worker('financial-worker.js?sha256='+m.financialHash);
@@ -80,15 +84,18 @@ export class BrowserEngine{
     if(!crossOriginIsolated||typeof SharedArrayBuffer==='undefined')throw Error('COOP/COEP headers required; no unsafe fallback');
     this.cancelled=false;const m=await material(),started=performance.now();
     this.sandbox=new SandboxClient();
+    const scheduling={chunks:0,checkpoints:0,callbackMs:0,callbackPythonMs:0,strategySnapshotMs:0,checkpointPersistenceMs:0,worstCheckpointPersistenceMs:0};
+    const initializing=performance.now();
     try{
       await this.sandbox.init(bundle.definition.code);
       if(this.cancelled)throw Error('Cancelled by user');
       if(options.resume)await this.sandbox.control('RESTORE',options.resume.strategy);
     }catch(e){this.stop();throw e;}
+    scheduling.sandboxInitializationMs=performance.now()-initializing;
     this.worker=new Worker('financial-worker.js?sha256='+m.financialHash);
     const shared=new SharedArrayBuffer(16+65536),control=new Int32Array(shared,0,4),out=new Uint8Array(shared,16);
     return new Promise((resolve,reject)=>{
-      let chunkTimer,wholeTimer,closed=false;
+      let chunkTimer,wholeTimer,closed=false,restoredCalls=0;
       const fail=e=>{if(closed)return;closed=true;clearTimeout(chunkTimer);clearTimeout(wholeTimer);this.stop();reject(e instanceof Error?e:Error(String(e)));};
       const arm=()=>{clearTimeout(chunkTimer);chunkTimer=setTimeout(()=>fail(Error('30-second chunk deadline exceeded; resume last verified checkpoint')),32000);};
       const next=()=>{arm();this.worker?.postMessage({type:'NEXT'});};
@@ -98,25 +105,38 @@ export class BrowserEngine{
         if(closed)return;
         try{
           if(data.type==='call'){
+            const callbackStarted=performance.now();
             let answer;try{answer=await this.sandbox.step(data.frame);}catch(e){answer=JSON.stringify({error:e.message});}
+            scheduling.callbackMs+=performance.now()-callbackStarted;scheduling.callbackPythonMs+=this.sandbox.lastStepMs||0;
             if(closed||!this.worker)return;
             const encoded=new TextEncoder().encode(answer);
             if(encoded.length>65536)throw Error('Decision reply exceeds 64KiB');
             out.set(encoded);Atomics.store(control,1,encoded.length);Atomics.store(control,0,1);Atomics.notify(control,0);
-            if(data.seq%100===0)onProgress({calls:data.seq});
-          }else if(data.type==='loaded')next();
+            if(data.seq%100===0)onProgress({calls:data.seq+restoredCalls});
+          }else if(data.type==='loaded'){
+            restoredCalls=data.loaded.restored_calls||0;
+            onProgress({calls:restoredCalls,next_ms:data.loaded.next_ms,resumed:!!options.resume});next();
+          }else if(data.type==='progress'){
+            clearTimeout(chunkTimer);scheduling.chunks++;
+            onProgress({calls:data.metrics.calls,next_ms:data.next_ms,metrics:data.metrics});next();
+          }
           else if(data.type==='checkpoint'){
-            clearTimeout(chunkTimer);
+            clearTimeout(chunkTimer);scheduling.chunks++;scheduling.checkpoints++;
+            const snapshotStarted=performance.now();
             const state=await this.sandbox.control('SNAPSHOT');
+            scheduling.strategySnapshotMs+=performance.now()-snapshotStarted;
             if(closed)return;
+            const persistenceStarted=performance.now();
             await options.onCheckpoint?.({finance:data.snapshot,strategy:state.checkpoint});
+            const persistenceMs=performance.now()-persistenceStarted;scheduling.checkpointPersistenceMs+=persistenceMs;
+            scheduling.worstCheckpointPersistenceMs=Math.max(scheduling.worstCheckpointPersistenceMs,persistenceMs);
             if(closed)return;
-            onProgress({calls:data.metrics.calls,next_ms:data.snapshot.next_ms,checkpoint:true});
+            onProgress({calls:data.metrics.calls,next_ms:data.snapshot.next_ms,checkpoint:true,metrics:data.metrics});
             next();
           }else if(data.type==='fatal')fail(Error(data.error));
           else if(data.type==='done'){
             closed=true;clearTimeout(chunkTimer);clearTimeout(wholeTimer);
-            const metrics={...data.metrics,wallMs:performance.now()-started,strategyWasmBytes:this.sandbox.lastWasmBytes||this.sandbox.info.wasmBytes,resumed:!!options.resume};
+            const metrics={...data.metrics,scheduling,wallMs:performance.now()-started,strategyWasmBytes:this.sandbox.lastWasmBytes||this.sandbox.info.wasmBytes,resumed:!!options.resume};
             this.stop();resolve({...data.value,metrics,scope:'TRUSTED-CODE BROWSER REPLAY; NOT OS-CONTAINER ISOLATION'});
           }
         }catch(e){fail(e);}

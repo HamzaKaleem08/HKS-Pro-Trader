@@ -1,0 +1,303 @@
+{
+  "suite": "full",
+  "genuine_market": "BINANCE USD-M USDT perpetual Futures, diagnostic only",
+  "start_utc": "2025-11-28T00:00:00Z",
+  "end_exclusive_utc": "2025-12-01T00:00:00Z",
+  "physical_android_tested": false,
+  "owner_browser_storage_accessed": false,
+  "external_network_requests": false,
+  "runs": {
+    "combined-20": {
+      "status": "COMPLETE",
+      "job": "a8439db9-a882-4fab-9300-076d60c59a41",
+      "seconds": 1016.9350693680171,
+      "progress": 100,
+      "candle_network_requests": 0,
+      "profile_file": {
+        "bytes": 281620,
+        "sha256": "e5de10e77000e16a97fedd7216ad5b5d392c044aec76b1e9cc61c467d4d5e8a0"
+      },
+      "result_hash": "85299dff93e7a3e8debd7899e495e88366ed56905e8e35e5f712a47d9a538ac6",
+      "metrics": {
+        "calls": 86420,
+        "sessionCalls": 86420,
+        "initializationMs": 6276.664999991655,
+        "calculationMs": 911467.3999998868,
+        "chunkMs": 8384.77500000596,
+        "worstChunkMs": 21808.885000020266,
+        "jsonParseMs": 356.1899999976158,
+        "profile": {
+          "advanceMs": 3389.2849999999726,
+          "callbacks": {
+            "calls": 86420,
+            "contextMs": 32872.10029201432,
+            "decisionDecodeMs": 4749.345021007033,
+            "frameEncodingMs": 92286.65498399429,
+            "rpcWaitMs": 395667.42962998984
+          },
+          "financialCaptureMs": 0,
+          "serializationMs": 599.6449989999064,
+          "viewMs": 709.2600010000751
+        },
+        "financialWasmBytes": 560594944,
+        "loaded": {
+          "contextInitializationMs": 355.50000000000017,
+          "dataset_hash": "3e5b96c2059f4a8197931c21230b30350e93a80582bfcd436b02da253ced239a",
+          "inputValidationMs": 3136.5099999999998,
+          "loaded_candles": 112800,
+          "next_ms": 1764288000000,
+          "restored_calls": 0
+        },
+        "scheduling": {
+          "chunks": 517,
+          "checkpoints": 37,
+          "callbackMs": 328132.15499833226,
+          "callbackPythonMs": 182257.60001388192,
+          "strategySnapshotMs": 784.4899999201298,
+          "checkpointPersistenceMs": 29260.02500012517,
+          "worstCheckpointPersistenceMs": 1773.955000013113,
+          "sandboxInitializationMs": 3169.800000011921
+        },
+        "wallMs": 1008878.0549999774,
+        "strategyWasmBytes": 20971520,
+        "resumed": false
+      },
+      "closed": 1,
+      "open": 0,
+      "reconciliation": {
+        "exit_segments_checked": 1,
+        "accounts_checked": [
+          "ADAUSDT",
+          "APTUSDT",
+          "ARBUSDT",
+          "ATOMUSDT",
+          "AVAXUSDT",
+          "BCHUSDT",
+          "BNBUSDT",
+          "BTCUSDT",
+          "DOGEUSDT",
+          "DOTUSDT",
+          "ETHUSDT",
+          "FILUSDT",
+          "LINKUSDT",
+          "LTCUSDT",
+          "NEARUSDT",
+          "OPUSDT",
+          "SOLUSDT",
+          "SUIUSDT",
+          "TRXUSDT",
+          "XRPUSDT"
+        ],
+        "maximum_allowed_decimal_residual": "1E-20"
+      },
+      "result_file": {
+        "bytes": 446569,
+        "sha256": "911c66a7f979815556c0e4b3fa04553ef9c6c8d35cc7c03df931603ddc7f50ce"
+      },
+      "csv_verified": true
+    },
+    "batch-1": {
+      "status": "COMPLETE",
+      "job": "1c9f970e-cb40-450c-a2d5-7c102d96ad77",
+      "seconds": 306.81484741999884,
+      "progress": 100,
+      "candle_network_requests": 0,
+      "profile_file": {
+        "bytes": 95144,
+        "sha256": "d59087835252494e2922f00f53cfb1809c48cc934c06509739972f99a04c4735"
+      },
+      "result_hash": "0cbdd6492675a8e9c374fba5a54bec96d4edbf71635e95174fc0c99ae4aef6db",
+      "metrics": {
+        "calls": 30247,
+        "sessionCalls": 30247,
+        "initializationMs": 3414.405000001192,
+        "calculationMs": 267886.8899998665,
+        "chunkMs": 2461.5,
+        "worstChunkMs": 10109.030000001192,
+        "jsonParseMs": 133.92500001192093,
+        "profile": {
+          "advanceMs": 1259.9700000000098,
+          "callbacks": {
+            "calls": 30247,
+            "contextMs": 7926.814999999688,
+            "decisionDecodeMs": 1313.2599999977094,
+            "frameEncodingMs": 29286.87499999822,
+            "rpcWaitMs": 121641.00000000343
+          },
+          "financialCaptureMs": 0,
+          "serializationMs": 158.25499999999693,
+          "viewMs": 172.1900000000005
+        },
+        "financialWasmBytes": 187695104,
+        "loaded": {
+          "contextInitializationMs": 167.29499999999976,
+          "dataset_hash": "3c128a907e93c831dee2226c4198bbf1e178859ce761dd084c0bd93a65427d7b",
+          "inputValidationMs": 1112.3350000000003,
+          "loaded_candles": 39480,
+          "next_ms": 1764288000000,
+          "restored_calls": 0
+        },
+        "scheduling": {
+          "chunks": 179,
+          "checkpoints": 37,
+          "callbackMs": 101395.91999831796,
+          "callbackPythonMs": 57398.00000438094,
+          "strategySnapshotMs": 542.6100000441074,
+          "checkpointPersistenceMs": 11134.239999979734,
+          "worstCheckpointPersistenceMs": 766.75,
+          "sandboxInitializationMs": 2667.4449999928474
+        },
+        "wallMs": 302805.80500000715,
+        "strategyWasmBytes": 20971520,
+        "resumed": false
+      },
+      "closed": 0,
+      "open": 0,
+      "reconciliation": {
+        "exit_segments_checked": 0,
+        "accounts_checked": [
+          "ADAUSDT",
+          "APTUSDT",
+          "ARBUSDT",
+          "ATOMUSDT",
+          "AVAXUSDT",
+          "BCHUSDT",
+          "BNBUSDT"
+        ],
+        "maximum_allowed_decimal_residual": "1E-20"
+      },
+      "result_file": {
+        "bytes": 133760,
+        "sha256": "7cc06373be36e1090cd8c37565554bf3c208009a90399908e94e08a3c40915e9"
+      },
+      "csv_verified": "Not applicable: unchanged UI omits empty CSV exports"
+    },
+    "batch-2": {
+      "status": "COMPLETE",
+      "job": "32457adb-74b6-4d54-9436-0662006663dd",
+      "seconds": 307.2293479810178,
+      "progress": 100,
+      "candle_network_requests": 0,
+      "profile_file": {
+        "bytes": 96541,
+        "sha256": "3a328ab0aa24ef81fa48b659d3173060055fe701fac9fa2c14361dc99e8beb51"
+      },
+      "result_hash": "b7c1ee070608ada9c5af414a25f577c6c1186c8e68cde1206de84605fa561525",
+      "metrics": {
+        "calls": 30247,
+        "sessionCalls": 30247,
+        "initializationMs": 4335.405000001192,
+        "calculationMs": 266429.2499998808,
+        "chunkMs": 2689.044999986887,
+        "worstChunkMs": 6453.469999998808,
+        "jsonParseMs": 96.28999999165535,
+        "profile": {
+          "advanceMs": 1654.3300010000053,
+          "callbacks": {
+            "calls": 30247,
+            "contextMs": 8929.370123997674,
+            "decisionDecodeMs": 1737.564903998427,
+            "frameEncodingMs": 28504.5299739985,
+            "rpcWaitMs": 127100.17996900741
+          },
+          "financialCaptureMs": 0,
+          "serializationMs": 163.69000000003098,
+          "viewMs": 183.46500000001242
+        },
+        "financialWasmBytes": 187695104,
+        "loaded": {
+          "contextInitializationMs": 220.33999999999932,
+          "dataset_hash": "838c382ff2f0abe94486d53c678b3e0adebbb273b769c44a6e5913e980ea6465",
+          "inputValidationMs": 2088.09,
+          "loaded_candles": 39480,
+          "next_ms": 1764288000000,
+          "restored_calls": 0
+        },
+        "scheduling": {
+          "chunks": 179,
+          "checkpoints": 37,
+          "callbackMs": 105363.49499922991,
+          "callbackPythonMs": 60212.30000534654,
+          "strategySnapshotMs": 495.6100001335144,
+          "checkpointPersistenceMs": 10798.844999939203,
+          "worstCheckpointPersistenceMs": 664.5599999725819,
+          "sandboxInitializationMs": 4620.610000014305
+        },
+        "wallMs": 303567.25500002503,
+        "strategyWasmBytes": 20971520,
+        "resumed": false
+      },
+      "closed": 0,
+      "open": 0,
+      "reconciliation": {
+        "exit_segments_checked": 0,
+        "accounts_checked": [
+          "BTCUSDT",
+          "DOGEUSDT",
+          "DOTUSDT",
+          "ETHUSDT",
+          "FILUSDT",
+          "LINKUSDT",
+          "LTCUSDT"
+        ],
+        "maximum_allowed_decimal_residual": "1E-20"
+      },
+      "result_file": {
+        "bytes": 133204,
+        "sha256": "1557b11b7b3a2efd8c523c04516df32fae3383b47d85dd276b348be2b5d4c742"
+      },
+      "csv_verified": "Not applicable: unchanged UI omits empty CSV exports"
+    },
+    "batch-3": {
+      "status": "FAILED",
+      "job": "252bd3a7-69a1-4b02-a351-c90cb74d91ee",
+      "seconds": 152.19384438701672,
+      "progress": 71.68981481481481,
+      "candle_network_requests": 0,
+      "profile_file": {
+        "bytes": 59259,
+        "sha256": "df65df9d201843502033b7a90dcc542440446cd4bd33cb5483917c3a742b7599"
+      }
+    }
+  },
+  "page_errors": [],
+  "peak_chromium_rss_bytes": 4362514432,
+  "verified_source_inputs": 26,
+  "strategy_sha256": "d967f440b871d6fe14d0b65ad8c051fbd984fe366676f0be0117eddeb282d53e",
+  "local_origin": "http://127.0.0.1:42639",
+  "symbols": [
+    "ADAUSDT",
+    "APTUSDT",
+    "ARBUSDT",
+    "ATOMUSDT",
+    "AVAXUSDT",
+    "BCHUSDT",
+    "BNBUSDT",
+    "BTCUSDT",
+    "DOGEUSDT",
+    "DOTUSDT",
+    "ETHUSDT",
+    "FILUSDT",
+    "LINKUSDT",
+    "LTCUSDT",
+    "NEARUSDT",
+    "OPUSDT",
+    "SOLUSDT",
+    "SUIUSDT",
+    "TRXUSDT",
+    "XRPUSDT"
+  ],
+  "source_hash": "57ffc4a7599f96b5bf206701cad86a18a540040c27f64c017bb8e8a00aa8d65b",
+  "browser_version": "151.0.7922.173",
+  "cold_cache": {
+    "downloaded": 20,
+    "reused": 0
+  },
+  "cache_seconds": 1.2912021490046754,
+  "warm_cache": {
+    "downloaded": 0,
+    "reused": 20
+  },
+  "passed": false,
+  "failure": "AssertionError(('batch-3', 'PythonError: Traceback (most recent call last):\\n  File \"/lib/python312.zip/_pyodide/_base.py\", line 523, in eval_code\\n    .run(globals, locals)\\n     ^^^^^^^^^^^^^^^^^^^^\\n  File \"/lib/python312.zip/_pyodide/_base.py\", line 357, in run\\n    coroutine = eval(self.code, globals, locals)\\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\n  File \"<exec>\", line 1, in <module>\\n  File \"/app/browser_adapter.py\", line 120, in next_stream\\n    value=next(_stream)\\n          ^^^^^^^^^^^^^\\n  File \"/app/browser_stream.py\", line 181, in chunks\\n    yield next(it)\\n          ^^^^^^^^\\n  File \"<pinned-v4-checkpoint-scheduling>\", line 108, in _checkpoint_iterator\\n  File \"/app/browser_adapter.py\", line 68, in after_close\\n    return super().after_close(account,bar,history)\\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\n  File \"/app/backtester/python_runtime.py\", line 33, in after_close\\n    decision=self.rpc.call({\\'symbol\\':bar.symbol,\\'bars\\':primitives([asdict(b) for b in rows]),\\'position\\':primitives(p),\\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\n  File \"/app/browser_adapter.py\", line 39, in call\\n    reply=str(js.strategy_call(raw));received_at=time.perf_counter()\\n              ^^^^^^^^^^^^^^^^^^^^^\\n  File \"http://127.0.0.1:42639/financial-worker.js\", line 7, in self.strategy_call\\npyodide.ffi.JsException: Error: Strategy response deadline exceeded\\n'))"
+}
