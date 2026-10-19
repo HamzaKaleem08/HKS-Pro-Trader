@@ -1,0 +1,26 @@
+# Source backup only. Do not commit credentials, device state or market caches.
+.env
+.env.*
+!.env.example
+!*.env.example
+.wrangler/
+.venv/
+node_modules/
+__pycache__/
+*.pyc
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.pem
+*.key
+*credentials*.json
+*token*.json
+web/candles/
+web/fixtures/genuine_*.json.gz
+browser-profiles/
+qa-output/
+local-data/
+playwright-report/
+test-results/

@@ -1,0 +1,4 @@
+# Optional real-browser verification only; not app runtime dependencies.
+playwright==1.62.0
+greenlet==3.5.5
+pyee==13.0.1

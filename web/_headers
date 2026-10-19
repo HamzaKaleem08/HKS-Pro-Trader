@@ -1,0 +1,23 @@
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+  Cross-Origin-Resource-Policy: same-origin
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+/
+  Content-Security-Policy: default-src 'none'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self'; connect-src 'self'; frame-src 'self'; img-src 'self'; frame-ancestors 'none'
+/index.html
+  Content-Security-Policy: default-src 'none'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self'; connect-src 'self'; frame-src 'self'; img-src 'self'; frame-ancestors 'none'
+/index
+  Content-Security-Policy: default-src 'none'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self'; connect-src 'self'; frame-src 'self'; img-src 'self'; frame-ancestors 'none'
+/sandbox.html
+  Content-Security-Policy: default-src 'none'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'sha256-pS5Q9rc0YD+SHnRAFUusZKbKlaQI1uOI/YyHE5g/mDM=' blob: 'unsafe-eval'; worker-src blob:; connect-src 'none'; frame-src 'none'; frame-ancestors 'self'
+/sandbox
+  Content-Security-Policy: default-src 'none'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'sha256-pS5Q9rc0YD+SHnRAFUusZKbKlaQI1uOI/YyHE5g/mDM=' blob: 'unsafe-eval'; worker-src blob:; connect-src 'none'; frame-src 'none'; frame-ancestors 'self'
+/financial-worker.js
+  Content-Security-Policy: default-src 'none'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'self' 'unsafe-eval'; worker-src 'self'; connect-src 'self'
+/vendor/pyodide/console.html
+  Content-Security-Policy: default-src 'none'; sandbox; frame-ancestors 'none'
+/vendor/pyodide/console
+  Content-Security-Policy: default-src 'none'; sandbox; frame-ancestors 'none'

@@ -1,0 +1,17 @@
+✔ explicit checked consent preserves the complete request unchanged (2.515813ms)
+✔ unchecked current consent rejects even if saved request had consent (0.486643ms)
+✔ late checkbox edits cannot authorize a captured false request (0.521639ms)
+✔ resume cannot promote missing or false saved consent (0.297103ms)
+✔ true saved consent plus fresh acknowledgement allows resume (0.833072ms)
+✔ truthy strings and numbers are not boolean consent (0.410794ms)
+✔ Spot synthetic fixtures do not require Futures consent (0.281072ms)
+✔ explicit per-device consent persists independently of old successful tests (0.632698ms)
+✔ service worker binds code lookup to current build, not retained legacy caches (10.11418ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 27.364888

@@ -1,0 +1,87 @@
+{
+  "url": "https://hks-pro-trader-browser-staging.pages.dev/?sandbox=completed-context-v2",
+  "http_status": 200,
+  "strategy_file_sha256": "d967f440b871d6fe14d0b65ad8c051fbd984fe366676f0be0117eddeb282d53e",
+  "runtime_source_hash": "158621d515ab70e0a3b1759f6d73db2c6818481ac29ce0fba71ed7cb2e07e6a4",
+  "actual_context_api": {
+    "type": "ready",
+    "contextContract": "HKS_BROWSER_COMPLETED_CONTEXT/2",
+    "contextTimeframes": [
+      "15m",
+      "1h"
+    ],
+    "runtimeManifest": "bcbd3f93a60bea82edbbb1cf50b24ae5fe87aa2b0e6fa48756bfb1ebcae5165c",
+    "wasmBytes": 20971520,
+    "origin": "null",
+    "python": "3.12.7 (main, Jun  4 2025, 22:38:17) [Clang 19.0.0git (https:/github.com/llvm/llvm-project 0a8cd1ed1f4f35905df318015b"
+  },
+  "versioned_offline_report_reload": true,
+  "new_browser_process_restore": true,
+  "existing_reports_jobs_candles_preserved": true,
+  "mobile_emulation": true,
+  "physical_android_tested": false,
+  "page_errors": [],
+  "passed": true,
+  "runs": {
+    "shared": {
+      "closed": 1,
+      "open": 0,
+      "result_hash": "7160f0c0d79a98c5f412f1c2865ec854359a4af759d6e6d649ea753a86ea4199",
+      "full_financial_parity": true,
+      "journal_detail_and_csv": true,
+      "independent_reconciliation": {
+        "exit_segments_checked": 1,
+        "accounts_checked": [
+          "SHARED"
+        ],
+        "maximum_allowed_decimal_residual": "1E-20"
+      },
+      "metrics": {
+        "calls": 8642,
+        "initializationMs": 1893.3299999833107,
+        "calculationMs": 72852.8900000751,
+        "financialWasmBytes": 62783488,
+        "loaded": {
+          "dataset_hash": "d76e695d34cc65e018cd98302a2f2c389232557b8cff163dbf76b53524319cc5",
+          "loaded_candles": 11280
+        },
+        "wallMs": 81201.00499999523,
+        "strategyWasmBytes": 20971520,
+        "resumed": false
+      },
+      "candle_network_requests": 0,
+      "reload_persistence": true
+    },
+    "individual": {
+      "closed": 1,
+      "open": 0,
+      "result_hash": "75654c2be87a71e05cfa3001777f2a9c66f8551a1fa4501eb0934bc5bd76b670",
+      "full_financial_parity": true,
+      "journal_detail_and_csv": true,
+      "independent_reconciliation": {
+        "exit_segments_checked": 1,
+        "accounts_checked": [
+          "BTCUSDT",
+          "ETHUSDT"
+        ],
+        "maximum_allowed_decimal_residual": "1E-20"
+      },
+      "metrics": {
+        "calls": 8642,
+        "initializationMs": 3613.6949999928474,
+        "calculationMs": 83390.28999996185,
+        "financialWasmBytes": 108527616,
+        "loaded": {
+          "dataset_hash": "d76e695d34cc65e018cd98302a2f2c389232557b8cff163dbf76b53524319cc5",
+          "loaded_candles": 11280
+        },
+        "wallMs": 96613.72499999404,
+        "strategyWasmBytes": 20971520,
+        "resumed": false
+      },
+      "candle_network_requests": 0,
+      "reload_persistence": true
+    }
+  },
+  "scope": "Disposable public Backtester QA only; historical prices omitted; no owner production wallets, account data, or browser profiles."
+}

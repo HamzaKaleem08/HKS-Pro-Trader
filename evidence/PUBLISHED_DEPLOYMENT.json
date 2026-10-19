@@ -1,0 +1,12 @@
+{
+  "id": "3f09eb4b-f8d9-4679-9c75-e08ccd2b49db",
+  "url": "https://3f09eb4b.hks-pro-trader-browser-staging.pages.dev",
+  "created_on": "2026-10-19T12:12:51.281523Z",
+  "environment": "production",
+  "latest_stage": {
+    "name": "deploy",
+    "started_on": null,
+    "ended_on": "2026-10-19T12:12:52.720464Z",
+    "status": "success"
+  }
+}

@@ -1,0 +1,4 @@
+name = "hks-pro-trader-browser-staging"
+pages_build_output_dir = "web"
+compatibility_date = "2026-10-17"
+# Static Pages only. No Workers, Functions, bindings, R2 or paid services.

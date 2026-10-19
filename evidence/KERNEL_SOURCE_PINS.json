@@ -1,0 +1,19 @@
+{
+  "v4": "/workspace/HKS-Pro-Trader-backtester-v4-python-20261017",
+  "source_sha256": {
+    "backtester/__init__.py": "09ae2d7ed8ede315d35ff805f11b55315334c7cc628048555967cd23a42ec39d",
+    "backtester/common.py": "34a9fc7837880f21a7eb42297c22b31fc5e51dca185d0946f017791bf1413d2f",
+    "backtester/config.py": "f0e83f4771acf2e9b427a63c10797b91a85e43131f57213708ad6d3ceb0af4b2",
+    "backtester/data.py": "0445b6b0a641db0f94490ead2a24f48063a95e09546fb451884c7cc246b0a822",
+    "backtester/models.py": "96452661b90a3e473d69c7271eef7ac10aae097284c44520bee437094b6d8014",
+    "backtester/errors.py": "4407f705bbb627eac09e6109f5c0b063de0b3c8f914fb7b32a149f90b450ae75",
+    "backtester/portfolio.py": "419655415ac7257a01e329207a0cf6d7f0464fe144f32222e4fe9b1cc83b7e86",
+    "backtester/simulation.py": "05229dcd9f5f8ec391a5f4ee74cbcba74c7bb0b45daa7cc5a783fafe45003fac",
+    "backtester/studio_management.py": "c889a144e58a7f45fc20b54f239335399947646893b4f81525790dcb368a2fdf",
+    "backtester/studio_strategy.py": "a9d1360aa2528c63a02b8a8bcf39793460f6cafa1bf7e3cf40984e926bbb31c7",
+    "backtester/python_definition.py": "3191e930412461e9ac5e7f879ae131b60f28890134d4e1ace185a5bcad4175cf",
+    "backtester/python_runtime.py": "06c3ad7aff838bd24fff52b7aef6deb9811f93a3bb5355682eac0292fd708195",
+    "backtester/python_sandbox_runner.py": "f1f73edf9d9e00437d3dc23e2cfe7a5f63d3a7a6b7a0062bb9943ae3e6a7f533"
+  },
+  "financial_files_unchanged": true
+}

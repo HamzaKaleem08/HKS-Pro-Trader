@@ -1,0 +1,35 @@
+{
+  "passed": true,
+  "commands": [
+    {
+      "command": [
+        "python",
+        "-B",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-v"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/test_context_delivery.mjs"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/test_replay_consent.mjs"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "external_historical_files_restored_only_to_temporary_test_copy": 26,
+  "historical_data_added_to_git_backup": false,
+  "legacy_128_file_archive_check_used_existing_external_original": true
+}

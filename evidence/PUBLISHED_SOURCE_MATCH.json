@@ -1,0 +1,384 @@
+{
+  "origin": "https://hks-pro-trader-browser-staging.pages.dev",
+  "assets": [
+    {
+      "path": "app.js",
+      "bytes": 29889,
+      "sha256": "f94a5e5947957996eddc67fb776a9b50065b98683f867df3d83d6ed24cfcee06",
+      "http_status": 200,
+      "actual_bytes": 29889,
+      "actual_sha256": "f94a5e5947957996eddc67fb776a9b50065b98683f867df3d83d6ed24cfcee06",
+      "match": true
+    },
+    {
+      "path": "boot.js",
+      "bytes": 1364,
+      "sha256": "68d3134f0bf96b58be12fcc6c99ba196342e7708668598b306946e799659915f",
+      "http_status": 200,
+      "actual_bytes": 1364,
+      "actual_sha256": "68d3134f0bf96b58be12fcc6c99ba196342e7708668598b306946e799659915f",
+      "match": true
+    },
+    {
+      "path": "candle-catalog.json",
+      "bytes": 10673,
+      "sha256": "8d0e12f94f991947e96728f81a8b75d35d4251ff694018bd6a88786150bb18b7",
+      "http_status": 200,
+      "actual_bytes": 10673,
+      "actual_sha256": "8d0e12f94f991947e96728f81a8b75d35d4251ff694018bd6a88786150bb18b7",
+      "match": true
+    },
+    {
+      "path": "catalog.json",
+      "bytes": 3088,
+      "sha256": "60db46a6d04e7050d99814f4de6bd24423489ca49a5b4eff143944fa3b3835d0",
+      "http_status": 200,
+      "actual_bytes": 3088,
+      "actual_sha256": "60db46a6d04e7050d99814f4de6bd24423489ca49a5b4eff143944fa3b3835d0",
+      "match": true
+    },
+    {
+      "path": "client.js",
+      "bytes": 8717,
+      "sha256": "7825b1afc1c75f57029afd13ad362e1797ac74883d0af87b2f5e75f5a048b0db",
+      "http_status": 200,
+      "actual_bytes": 8717,
+      "actual_sha256": "7825b1afc1c75f57029afd13ad362e1797ac74883d0af87b2f5e75f5a048b0db",
+      "match": true
+    },
+    {
+      "path": "financial-worker.js",
+      "bytes": 2466,
+      "sha256": "b613dde4acd9e82d4ac012020b05461e3a0f12c4186bf86581439c499d121084",
+      "http_status": 200,
+      "actual_bytes": 2466,
+      "actual_sha256": "b613dde4acd9e82d4ac012020b05461e3a0f12c4186bf86581439c499d121084",
+      "match": true
+    },
+    {
+      "path": "fixtures/synthetic_atr_gap.json.gz",
+      "bytes": 577,
+      "sha256": "56960922a52c05a5ac3638ec328933f0cd3c800c426d74da451000117963f6f1",
+      "http_status": 200,
+      "actual_bytes": 577,
+      "actual_sha256": "56960922a52c05a5ac3638ec328933f0cd3c800c426d74da451000117963f6f1",
+      "match": true
+    },
+    {
+      "path": "fixtures/synthetic_hand_partial.json.gz",
+      "bytes": 651,
+      "sha256": "ec6a591addb4ab0abc599dcc7199981ce93e44e9b7b367b3222fe7149491fc1a",
+      "http_status": 200,
+      "actual_bytes": 651,
+      "actual_sha256": "ec6a591addb4ab0abc599dcc7199981ce93e44e9b7b367b3222fe7149491fc1a",
+      "match": true
+    },
+    {
+      "path": "fixtures/synthetic_invalid_decimal.json.gz",
+      "bytes": 567,
+      "sha256": "88ebd9a1409a0753baa42d4c1c2dbfdfbef9b12066241e63a63f1d65ad90e973",
+      "http_status": 200,
+      "actual_bytes": 567,
+      "actual_sha256": "88ebd9a1409a0753baa42d4c1c2dbfdfbef9b12066241e63a63f1d65ad90e973",
+      "match": true
+    },
+    {
+      "path": "fixtures/synthetic_invalid_stop.json.gz",
+      "bytes": 561,
+      "sha256": "1734ff81092080da82ce1f4b18c80cfaf4cbb1fb9a2ff27780fd49e25add83d0",
+      "http_status": 200,
+      "actual_bytes": 561,
+      "actual_sha256": "1734ff81092080da82ce1f4b18c80cfaf4cbb1fb9a2ff27780fd49e25add83d0",
+      "match": true
+    },
+    {
+      "path": "fixtures/synthetic_long_trailing.json.gz",
+      "bytes": 647,
+      "sha256": "257c302ba5c4a3b984f578b7302ca599a23162c652415863790bc61afd3362fa",
+      "http_status": 200,
+      "actual_bytes": 647,
+      "actual_sha256": "257c302ba5c4a3b984f578b7302ca599a23162c652415863790bc61afd3362fa",
+      "match": true
+    },
+    {
+      "path": "fixtures/synthetic_multicoin_costs_individual.json.gz",
+      "bytes": 686,
+      "sha256": "6e4adf7b0ce430f6e2cc96a04e3cf2e093b1308d0f74305efb57971efb2d2b09",
+      "http_status": 200,
+      "actual_bytes": 686,
+      "actual_sha256": "6e4adf7b0ce430f6e2cc96a04e3cf2e093b1308d0f74305efb57971efb2d2b09",
+      "match": true
+    },
+    {
+      "path": "fixtures/synthetic_multicoin_costs_shared.json.gz",
+      "bytes": 682,
+      "sha256": "2387ccf183d40dd174a4871437db5b597e0c0aaaa07eb42fc6d5038535880d61",
+      "http_status": 200,
+      "actual_bytes": 682,
+      "actual_sha256": "2387ccf183d40dd174a4871437db5b597e0c0aaaa07eb42fc6d5038535880d61",
+      "match": true
+    },
+    {
+      "path": "fixtures/synthetic_short_trailing.json.gz",
+      "bytes": 654,
+      "sha256": "492ff87f82828e25899e196a90063d435aed6dbecc6fabfcc8bb66965d4fbcb4",
+      "http_status": 200,
+      "actual_bytes": 654,
+      "actual_sha256": "492ff87f82828e25899e196a90063d435aed6dbecc6fabfcc8bb66965d4fbcb4",
+      "match": true
+    },
+    {
+      "path": "index.html",
+      "bytes": 14982,
+      "sha256": "8c843925beeb44212350cdfb4af3507afa175f5240a00b8fdf2b3abe367a6429",
+      "http_status": 200,
+      "actual_bytes": 14982,
+      "actual_sha256": "8c843925beeb44212350cdfb4af3507afa175f5240a00b8fdf2b3abe367a6429",
+      "match": true
+    },
+    {
+      "path": "kernel.json",
+      "bytes": 103053,
+      "sha256": "48dd5f2a8b72372383a36d406c665a21d15eb4a42d485df03ea601978a3c34f3",
+      "http_status": 200,
+      "actual_bytes": 103053,
+      "actual_sha256": "48dd5f2a8b72372383a36d406c665a21d15eb4a42d485df03ea601978a3c34f3",
+      "match": true
+    },
+    {
+      "path": "offline-assets.json",
+      "bytes": 454,
+      "sha256": "5fa8018bb16e145f12fc3551d252dc5eef0385ec38a20c407953fd258c77b727",
+      "http_status": 200,
+      "actual_bytes": 454,
+      "actual_sha256": "5fa8018bb16e145f12fc3551d252dc5eef0385ec38a20c407953fd258c77b727",
+      "match": true
+    },
+    {
+      "path": "replay-consent.js",
+      "bytes": 1319,
+      "sha256": "92800091a7a1e4248fce9783bba814b05ac61d4e79a0965246e9b35f0ea910c0",
+      "http_status": 200,
+      "actual_bytes": 1319,
+      "actual_sha256": "92800091a7a1e4248fce9783bba814b05ac61d4e79a0965246e9b35f0ea910c0",
+      "match": true
+    },
+    {
+      "path": "runtime-integrity.js",
+      "bytes": 1167,
+      "sha256": "1801327ff8bab8700e939283b7b3b249fc3f1903fb5e84ac2c6364d1c9f20737",
+      "http_status": 200,
+      "actual_bytes": 1167,
+      "actual_sha256": "1801327ff8bab8700e939283b7b3b249fc3f1903fb5e84ac2c6364d1c9f20737",
+      "match": true
+    },
+    {
+      "path": "runtime-manifest.json",
+      "bytes": 1029,
+      "sha256": "bcbd3f93a60bea82edbbb1cf50b24ae5fe87aa2b0e6fa48756bfb1ebcae5165c",
+      "http_status": 200,
+      "actual_bytes": 1029,
+      "actual_sha256": "bcbd3f93a60bea82edbbb1cf50b24ae5fe87aa2b0e6fa48756bfb1ebcae5165c",
+      "match": true
+    },
+    {
+      "path": "sandbox-frame.js",
+      "bytes": 818,
+      "sha256": "a52e50f6b734603f921e7440154bac64a6ca95a408d6e388fd8c8713983f9833",
+      "http_status": 200,
+      "actual_bytes": 818,
+      "actual_sha256": "a52e50f6b734603f921e7440154bac64a6ca95a408d6e388fd8c8713983f9833",
+      "match": true
+    },
+    {
+      "path": "sandbox.html",
+      "bytes": 908,
+      "sha256": "e77a679c1226095930e4a54a8044a1cc26c0e1148c10cc317343c8791c00d072",
+      "http_status": 200,
+      "actual_bytes": 908,
+      "actual_sha256": "e77a679c1226095930e4a54a8044a1cc26c0e1148c10cc317343c8791c00d072",
+      "match": true
+    },
+    {
+      "path": "storage.js",
+      "bytes": 5791,
+      "sha256": "eba657601cfbb08f2f534ab9fb84a510a21d975c8bdd66d5ad104e6fffd14acc",
+      "http_status": 200,
+      "actual_bytes": 5791,
+      "actual_sha256": "eba657601cfbb08f2f534ab9fb84a510a21d975c8bdd66d5ad104e6fffd14acc",
+      "match": true
+    },
+    {
+      "path": "strategy-worker.js",
+      "bytes": 6091,
+      "sha256": "cd71b4cee8fc62db5bbbd90766a0824e4640531f10d18363eb91d7e023a0b5fa",
+      "http_status": 200,
+      "actual_bytes": 6091,
+      "actual_sha256": "cd71b4cee8fc62db5bbbd90766a0824e4640531f10d18363eb91d7e023a0b5fa",
+      "match": true
+    },
+    {
+      "path": "style.css",
+      "bytes": 23432,
+      "sha256": "c3cb8a0194687e00b2f5d30607511b6fa33e9429d0af13f7209ad9b725aaf585",
+      "http_status": 200,
+      "actual_bytes": 23432,
+      "actual_sha256": "c3cb8a0194687e00b2f5d30607511b6fa33e9429d0af13f7209ad9b725aaf585",
+      "match": true
+    },
+    {
+      "path": "sw.js",
+      "bytes": 2255,
+      "sha256": "fd6ce8180fc477982f4cde4dd6ffe61f8f3d64dcf6c1e9572d86d30295aeb7a3",
+      "http_status": 200,
+      "actual_bytes": 2255,
+      "actual_sha256": "fd6ce8180fc477982f4cde4dd6ffe61f8f3d64dcf6c1e9572d86d30295aeb7a3",
+      "match": true
+    },
+    {
+      "path": "vendor/pyodide/README.md",
+      "bytes": 1867,
+      "sha256": "7d434f487a81a9ea4944000fbbb5a771da89ca32fd1ff5edca0c5954b90cedec",
+      "http_status": 200,
+      "actual_bytes": 1867,
+      "actual_sha256": "7d434f487a81a9ea4944000fbbb5a771da89ca32fd1ff5edca0c5954b90cedec",
+      "match": true
+    },
+    {
+      "path": "vendor/pyodide/console.html",
+      "bytes": 10031,
+      "sha256": "348486f4d0ac9792644bfabe2b49bcfa73197baafd7634244c97ae160343ba6b",
+      "http_status": 200,
+      "actual_bytes": 10031,
+      "actual_sha256": "348486f4d0ac9792644bfabe2b49bcfa73197baafd7634244c97ae160343ba6b",
+      "match": true
+    },
+    {
+      "path": "vendor/pyodide/ffi.d.ts",
+      "bytes": 44144,
+      "sha256": "2ddc77394afa23784ade388d52ab8119f3cd713994a67b489abd9fe13b24964d",
+      "http_status": 200,
+      "actual_bytes": 44144,
+      "actual_sha256": "2ddc77394afa23784ade388d52ab8119f3cd713994a67b489abd9fe13b24964d",
+      "match": true
+    },
+    {
+      "path": "vendor/pyodide/package.json",
+      "bytes": 3267,
+      "sha256": "bf221f60c881626236d3501375a97753672a7fa6fed70e469e083f157c8a30d4",
+      "http_status": 200,
+      "actual_bytes": 3267,
+      "actual_sha256": "bf221f60c881626236d3501375a97753672a7fa6fed70e469e083f157c8a30d4",
+      "match": true
+    },
+    {
+      "path": "vendor/pyodide/pyodide-lock.json",
+      "bytes": 112205,
+      "sha256": "9c45b916001a750f4102fc287494f3eab215909c7535c626a20db80fd6333e2c",
+      "http_status": 200,
+      "actual_bytes": 112205,
+      "actual_sha256": "9c45b916001a750f4102fc287494f3eab215909c7535c626a20db80fd6333e2c",
+      "match": true
+    },
+    {
+      "path": "vendor/pyodide/pyodide.asm.js",
+      "bytes": 1255688,
+      "sha256": "6b4c90de5b7172873f04f21884d0e9d2274e305fe32116558fe3e4fbe3618d51",
+      "http_status": 200,
+      "actual_bytes": 1255688,
+      "actual_sha256": "6b4c90de5b7172873f04f21884d0e9d2274e305fe32116558fe3e4fbe3618d51",
+      "match": true
+    },
+    {
+      "path": "vendor/pyodide/pyodide.asm.wasm",
+      "bytes": 10105545,
+      "sha256": "a50dd1843f805a0b7c45b61037ee0d7b26dfe85efe0e18ef95a34ad24e401f5f",
+      "http_status": 200,
+      "actual_bytes": 10105545,
+      "actual_sha256": "a50dd1843f805a0b7c45b61037ee0d7b26dfe85efe0e18ef95a34ad24e401f5f",
+      "match": true
+    },
+    {
+      "path": "vendor/pyodide/pyodide.d.ts",
+      "bytes": 63609,
+      "sha256": "52c4f118d0563b3130520ab6034670fb53ed13837d9b8be6aa0906b76488f8d0",
+      "http_status": 200,
+      "actual_bytes": 63609,
+      "actual_sha256": "52c4f118d0563b3130520ab6034670fb53ed13837d9b8be6aa0906b76488f8d0",
+      "match": true
+    },
+    {
+      "path": "vendor/pyodide/pyodide.js",
+      "bytes": 14913,
+      "sha256": "b4cb23a53aba19c221659b9fb40a2f18281d685691dc06647fb0afd0681baf98",
+      "http_status": 200,
+      "actual_bytes": 14913,
+      "actual_sha256": "b4cb23a53aba19c221659b9fb40a2f18281d685691dc06647fb0afd0681baf98",
+      "match": true
+    },
+    {
+      "path": "vendor/pyodide/pyodide.js.map",
+      "bytes": 70076,
+      "sha256": "e47348f701f7e16646a903fbb8f631491dab2f0eb95abf0f50f91520c2bd3b42",
+      "http_status": 200,
+      "actual_bytes": 70076,
+      "actual_sha256": "e47348f701f7e16646a903fbb8f631491dab2f0eb95abf0f50f91520c2bd3b42",
+      "match": true
+    },
+    {
+      "path": "vendor/pyodide/pyodide.mjs",
+      "bytes": 13931,
+      "sha256": "04c052c815abb0bf2981fa38c2dfa58e3120ee5288c956df2b2a15e301782c5f",
+      "http_status": 200,
+      "actual_bytes": 13931,
+      "actual_sha256": "04c052c815abb0bf2981fa38c2dfa58e3120ee5288c956df2b2a15e301782c5f",
+      "match": true
+    },
+    {
+      "path": "vendor/pyodide/pyodide.mjs.map",
+      "bytes": 69696,
+      "sha256": "2c222c365362dcf99657da38aa627537e732006692f0da4dcf7e5f783724795d",
+      "http_status": 200,
+      "actual_bytes": 69696,
+      "actual_sha256": "2c222c365362dcf99657da38aa627537e732006692f0da4dcf7e5f783724795d",
+      "match": true
+    },
+    {
+      "path": "vendor/pyodide/python_stdlib.zip",
+      "bytes": 2360737,
+      "sha256": "16611534726e5d8ac2bd8f926410b2dcb8d6f49aa24913463533b457a2115c16",
+      "http_status": 200,
+      "actual_bytes": 2360737,
+      "actual_sha256": "16611534726e5d8ac2bd8f926410b2dcb8d6f49aa24913463533b457a2115c16",
+      "match": true
+    }
+  ],
+  "historical_candles_requested": false,
+  "deployed_changes": false,
+  "headers": {
+    "/": {
+      "status": 200,
+      "csp": "default-src 'none'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self'; connect-src 'self'; frame-src 'self'; img-src 'self'; frame-ancestors 'none'",
+      "coop": "same-origin",
+      "coep": "require-corp",
+      "corp": "same-origin"
+    },
+    "/sandbox": {
+      "status": 200,
+      "csp": "default-src 'none'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'sha256-pS5Q9rc0YD+SHnRAFUusZKbKlaQI1uOI/YyHE5g/mDM=' blob: 'unsafe-eval'; worker-src blob:; connect-src 'none'; frame-src 'none'; frame-ancestors 'self'",
+      "coop": "same-origin",
+      "coep": "require-corp",
+      "corp": "same-origin"
+    },
+    "/financial-worker.js": {
+      "status": 200,
+      "csp": "default-src 'none'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'self' 'unsafe-eval'; worker-src 'self'; connect-src 'self'",
+      "coop": "same-origin",
+      "coep": "require-corp",
+      "corp": "same-origin"
+    }
+  },
+  "configuration_headers_verified": true,
+  "matched_assets": 39,
+  "passed": true
+}

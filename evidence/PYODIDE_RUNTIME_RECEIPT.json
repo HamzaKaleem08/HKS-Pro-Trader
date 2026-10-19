@@ -1,0 +1,60 @@
+{
+  "source": "https://registry.npmjs.org/pyodide/-/pyodide-0.27.7.tgz",
+  "version": "0.27.7",
+  "npm_integrity": "sha512-RUSVJlhQdfWfgO9hVHCiXoG+nVZQRS5D9FzgpLJ/VcgGBLSAKoPL8kTiOikxbHQm1kRISeWUBdulEgO26qpSRA==",
+  "archive_sha256": "89d5d952675eb08e11286e52c7238f1248ce71726e896db9703e73bef23dc343",
+  "files": {
+    "console.html": {
+      "bytes": 10031,
+      "sha256": "348486f4d0ac9792644bfabe2b49bcfa73197baafd7634244c97ae160343ba6b"
+    },
+    "pyodide.asm.js": {
+      "bytes": 1255688,
+      "sha256": "6b4c90de5b7172873f04f21884d0e9d2274e305fe32116558fe3e4fbe3618d51"
+    },
+    "pyodide.js": {
+      "bytes": 14913,
+      "sha256": "b4cb23a53aba19c221659b9fb40a2f18281d685691dc06647fb0afd0681baf98"
+    },
+    "package.json": {
+      "bytes": 3267,
+      "sha256": "bf221f60c881626236d3501375a97753672a7fa6fed70e469e083f157c8a30d4"
+    },
+    "pyodide-lock.json": {
+      "bytes": 112205,
+      "sha256": "9c45b916001a750f4102fc287494f3eab215909c7535c626a20db80fd6333e2c"
+    },
+    "pyodide.js.map": {
+      "bytes": 70076,
+      "sha256": "e47348f701f7e16646a903fbb8f631491dab2f0eb95abf0f50f91520c2bd3b42"
+    },
+    "pyodide.mjs.map": {
+      "bytes": 69696,
+      "sha256": "2c222c365362dcf99657da38aa627537e732006692f0da4dcf7e5f783724795d"
+    },
+    "README.md": {
+      "bytes": 1867,
+      "sha256": "7d434f487a81a9ea4944000fbbb5a771da89ca32fd1ff5edca0c5954b90cedec"
+    },
+    "pyodide.mjs": {
+      "bytes": 13931,
+      "sha256": "04c052c815abb0bf2981fa38c2dfa58e3120ee5288c956df2b2a15e301782c5f"
+    },
+    "ffi.d.ts": {
+      "bytes": 44144,
+      "sha256": "2ddc77394afa23784ade388d52ab8119f3cd713994a67b489abd9fe13b24964d"
+    },
+    "pyodide.d.ts": {
+      "bytes": 63609,
+      "sha256": "52c4f118d0563b3130520ab6034670fb53ed13837d9b8be6aa0906b76488f8d0"
+    },
+    "pyodide.asm.wasm": {
+      "bytes": 10105545,
+      "sha256": "a50dd1843f805a0b7c45b61037ee0d7b26dfe85efe0e18ef95a34ad24e401f5f"
+    },
+    "python_stdlib.zip": {
+      "bytes": 2360737,
+      "sha256": "16611534726e5d8ac2bd8f926410b2dcb8d6f49aa24913463533b457a2115c16"
+    }
+  }
+}

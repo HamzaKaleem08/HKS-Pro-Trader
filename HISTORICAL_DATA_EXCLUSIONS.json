@@ -1,0 +1,163 @@
+{
+  "excluded_files": [
+    {
+      "path": "web/candles/ADAUSDT-1m-2025-11.csv.gz",
+      "bytes": 542828,
+      "sha256": "ac724356fbbb7b204b272b32c773bfefb577174b9fb46c33d4f0bf4956cef272",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/candles/APTUSDT-1m-2025-11.csv.gz",
+      "bytes": 653287,
+      "sha256": "0f534d76227a746e72e5aad25d3b56762877fb320e50da5f5c8edd8e8a07ccd5",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/candles/ARBUSDT-1m-2025-11.csv.gz",
+      "bytes": 538552,
+      "sha256": "adb7459345bcbd09bde6956a457cf43d3914d9e9a5505d7d54646e78550173d2",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/candles/ATOMUSDT-1m-2025-11.csv.gz",
+      "bytes": 514666,
+      "sha256": "0c4f09481d7fb52b45ad748b4fc3088e0cb18a20a7271aa835df3096866fa7bc",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/candles/AVAXUSDT-1m-2025-11.csv.gz",
+      "bytes": 556202,
+      "sha256": "aace87f206abd5febf6adc908bfbee14bf5927937cd545d5f25b671ce4e02299",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/candles/BCHUSDT-1m-2025-11.csv.gz",
+      "bytes": 660024,
+      "sha256": "b28c4e13c1a82cbc63c3f6230d951a8434a34f6fcbaf1ddac8734d33a86a554c",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/candles/BNBUSDT-1m-2025-11.csv.gz",
+      "bytes": 660060,
+      "sha256": "df79e0f61ae5f88c4f45202d81192fa6606bd09b031d11149f19b01d66733f39",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/candles/BTCUSDT-1m-2025-11.csv.gz",
+      "bytes": 748411,
+      "sha256": "170d54692614db1a95c320ae296484ad956a1159b2682f1c7f9b254b8bbfc32f",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/candles/DOGEUSDT-1m-2025-11.csv.gz",
+      "bytes": 639023,
+      "sha256": "cfc2f9d593e4036647c62c96472f7ae6c2aa1580a2cb989a01bea76216562227",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/candles/DOTUSDT-1m-2025-11.csv.gz",
+      "bytes": 494770,
+      "sha256": "ed26605aafc418ab7bde555acd263d183a0d6a72d18a16710cad509a255f6a62",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/candles/ETHUSDT-1m-2025-11.csv.gz",
+      "bytes": 770877,
+      "sha256": "87e9628ddc667751e4d537be6c0b7f762b84c4278dc6a150556ece5968dc03ec",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/candles/FILUSDT-1m-2025-11.csv.gz",
+      "bytes": 513371,
+      "sha256": "ed78f1deee8fb9006eedd64b3d202e7155bea9a458be5467ce04f5e7126e3d74",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/candles/LINKUSDT-1m-2025-11.csv.gz",
+      "bytes": 630259,
+      "sha256": "e7f377063e1c1b56f7af5b53a8f17bfa90ddcd454e6cb3efab8a3af3679f6add",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/candles/LTCUSDT-1m-2025-11.csv.gz",
+      "bytes": 603569,
+      "sha256": "d3f242d28b0577b3add132a22d40cbfea67bd4c4005deb25eb18950801059800",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/candles/NEARUSDT-1m-2025-11.csv.gz",
+      "bytes": 477434,
+      "sha256": "29859716b714e37c71dc7627d81d17e831688a46685309b9243a9463a8d11010",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/candles/OPUSDT-1m-2025-11.csv.gz",
+      "bytes": 565049,
+      "sha256": "1657240d1364d5186ec8e588bd5353a708f24f0ef5aac25c427770f99bee757b",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/candles/SOLUSDT-1m-2025-11.csv.gz",
+      "bytes": 641809,
+      "sha256": "4cf54067d5096013c14faff563641afdf73fb18b146026dc16ea9202050cb540",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/candles/SUIUSDT-1m-2025-11.csv.gz",
+      "bytes": 653656,
+      "sha256": "51350a4fbb8fda3e1cee1b40d6e417d731e641b01f089bbe6b875c3aa617c217",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/candles/TRXUSDT-1m-2025-11.csv.gz",
+      "bytes": 551424,
+      "sha256": "5dfaf8b975c7ecd7cb8b58fcb23bae95ce051839a9c60fe9deed6d824623f9d3",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/candles/XRPUSDT-1m-2025-11.csv.gz",
+      "bytes": 654965,
+      "sha256": "0c566ac69ccf3a0df98bace1ad88a4b84d7e3be903c1f17be0bb4a81697e177f",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/fixtures/genuine_20coin_30min.json.gz",
+      "bytes": 16386,
+      "sha256": "3c63bd1093eaaaa030ee87332fa216517f602c6892df466b255a064fcf390109",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/fixtures/genuine_20coin_6hours.json.gz",
+      "bytes": 102914,
+      "sha256": "0f4d4c37f0d953add0872a90fc02f301ef229b571e6d7aa1ee057701d0e5bcc3",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/fixtures/genuine_2coin_1day.json.gz",
+      "bytes": 48646,
+      "sha256": "39888ce4f24c40ece396d3717b240620e8ffefd65b432402a4d9e149aa5cd57b",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/fixtures/genuine_2coin_1day_individual.json.gz",
+      "bytes": 48665,
+      "sha256": "c8043108925c7ea6a0119b57d8ab8fb2a6cb01f6fb4c902bc2ed85eb91045d2f",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/fixtures/genuine_2coin_1hour.json.gz",
+      "bytes": 3814,
+      "sha256": "ab17b12878b012745dbca9937551e97539203f686148a1520263aad19f46cf2e",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    },
+    {
+      "path": "web/fixtures/genuine_2coin_1hour_individual.json.gz",
+      "bytes": 3819,
+      "sha256": "e6a2cad75dd884575c3e933039619ad911497936d10fb33bdaaf0e7af5d363bf",
+      "reason": "Historical market candles / genuine-data fixture intentionally excluded from source-only Git backup"
+    }
+  ],
+  "files": 26,
+  "bytes": 12294480,
+  "restore_policy": "Use separately preserved, checksum-matching market files only. No automatic downloads or substitutions."
+}

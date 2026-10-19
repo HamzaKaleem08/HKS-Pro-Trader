@@ -1,0 +1,3 @@
+# Application/local static server: Python 3.12 standard library only.
+# The exact browser Python distribution is vendored in web/vendor/pyodide/.
+# Optional browser-test dependency is documented in config/qa-requirements.txt.
