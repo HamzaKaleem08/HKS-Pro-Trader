@@ -255,14 +255,24 @@ def api(path, **params):
     global _bitget_next_time
     if path in ("ticker/24hr", "ticker/price"):
         endpoint = "tickers"
+        route = "/api/v3/market/tickers"
         args = {"category": "USDT-FUTURES"}
     elif path == "klines":
         endpoint = "candles"
-        interval = {"1m": "1m", "15m": "15m", "1h": "1H", "1d": "1D"}.get(params.get("interval"))
-        if not interval:
-            raise PriceError("Unsupported candle interval")
-        args = {"category": "USDT-FUTURES", "symbol": params["symbol"],
-                "interval": interval, "limit": str(params["limit"])}
+        interval = params.get("interval")
+        if interval == "1d":
+            # Unlike Bitget's v3 1D, the classic 1Dutc granularity explicitly
+            # opens each daily candle at 00:00 UTC, as HKS expects.
+            route = "/api/v2/mix/market/candles"
+            args = {"symbol": params["symbol"], "productType": "USDT-FUTURES",
+                    "granularity": "1Dutc", "limit": str(params["limit"])}
+        else:
+            mapped = {"1m": "1m", "15m": "15m", "1h": "1H"}.get(interval)
+            if not mapped:
+                raise PriceError("Unsupported candle interval")
+            route = "/api/v3/market/candles"
+            args = {"category": "USDT-FUTURES", "symbol": params["symbol"],
+                    "interval": mapped, "limit": str(params["limit"])}
     else:
         raise PriceError("Unsupported market endpoint")
     # Below provider limit of 20 requests per second per IP, within one instance.
@@ -272,7 +282,7 @@ def api(path, **params):
             time.sleep(_bitget_next_time - now)
         _bitget_next_time = time.monotonic() + 0.08
     try:
-        response = requests.get(f"{CANDLE_BASE}/api/v3/market/{endpoint}",
+        response = requests.get(f"{CANDLE_BASE}{route}",
                                 params=args, timeout=REQUEST_TIMEOUT,
                                 headers={"User-Agent": "HKS-Paper-Demo/1"})
         response.raise_for_status()
