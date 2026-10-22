@@ -898,7 +898,6 @@ def scan_once():
         except Exception:
             LOG.exception("Batch scan processing failed: rollback complete; using original isolated per-symbol fallback")
             processed = 0
-            processed = 0
             for symbol in symbols:
                 if symbol not in gathered:
                     with Session.begin() as db:
