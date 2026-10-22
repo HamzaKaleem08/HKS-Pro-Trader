@@ -774,17 +774,25 @@ def scan_once():
                 top.extend(x for x, _ in sorted(tickers.items(), key=lambda x: x[1]["volume"], reverse=True)
                            if x not in top)  # truncated below
             top = top[:SYMBOL_COUNT]
-        # Publish verified exchange tickers to the dashboard immediately.
-        # The 50 individual candle-history fetches may take longer; the UI
-        # must not show 0 pairs until every market request finishes.
+        # Publish the selected coin list and prices with one write transaction.
+        # Prefetch once: db.get() for 70 new symbols would issue 70 remote SQL
+        # round trips on Aiven even though all coins have just been selected.
         with Session.begin() as db:
             coin_write_lock(db)
             state = db.get(BotState, 1)
             state.market_symbols = ",".join(top)
             if refresh:
                 state.last_market_refresh_ms = now_ms
+            cached_coins = {row.symbol: row for row in db.scalars(select(Coin)).all()}
+            saved_global = db.get(GlobalMode, 1)
+            initial_mode = saved_global.mode if saved_global else "NORMAL"
             for symbol in top:
-                coin = init_coin(db, symbol)
+                coin = cached_coins.get(symbol)
+                if coin is None:
+                    coin = Coin(symbol=symbol, mode=initial_mode, score=0,
+                                trade_score=0, signal="WAIT")
+                    db.add(coin)
+                    cached_coins[symbol] = coin
                 coin.last_price = tickers[symbol]["price"]
         symbols = list(dict.fromkeys(top + sorted(holdings)))
         utc_day = datetime.fromtimestamp(now_ms / 1000, timezone.utc).date().isoformat()
@@ -803,73 +811,160 @@ def scan_once():
                     gathered[symbol] = fut.result()
                 except Exception as exc:
                     errors[symbol] = str(exc)[:200]
+        # Apply completed market data in ONE SQL transaction for the normal
+        # successful path. Aiven free tier showed ~1.37s per transaction.
+        # Per-coin commits took ~150s for 70 coins despite ~23s API warmup.
+        # Keep DB network I/O outside the market-data parallel fetch.
+        #
+        # On any unexpected batch exception, the entire transaction rolls
+        # back and the ORIGINAL isolated per-symbol path below retries,
+        # preserving its failure isolation and wallet/SL accounting.
         processed = 0
-        for symbol in symbols:
-            if symbol not in gathered:
-                with Session.begin() as db:
-                    coin_write_lock(db)
-                    c = init_coin(db, symbol)
-                    c.error = errors.get(symbol, "missing market data")
-                continue
-            data = gathered[symbol]
-            try:
-                with Session.begin() as db:
-                    coin_write_lock(db)
-                    coin = init_coin(db, symbol)
+        try:
+            with Session.begin() as db:
+                coin_write_lock(db)
+                db_coins = {c.symbol: c for c in db.scalars(select(Coin)).all()}
+                db_positions = {p.symbol: p for p in db.scalars(select(Position)).all()}
+                saved_global = db.get(GlobalMode, 1)
+                default_mode = saved_global.mode if saved_global else "NORMAL"
+                for symbol in symbols:
+                    coin = db_coins.get(symbol)
+                    if coin is None:
+                        coin = Coin(symbol=symbol, mode=default_mode, score=0,
+                                    trade_score=0, signal="WAIT")
+                        db.add(coin)
+                        db_coins[symbol] = coin
+                    if symbol not in gathered:
+                        coin.error = errors.get(symbol, "missing market data")
+                        continue
+
+                    data = gathered[symbol]
                     coin.error = None
                     if symbol in tickers:
                         coin.last_price = tickers[symbol]["price"]
                     if "daily" in data:
                         coin.daily_open = data["daily"]
                         coin.daily_date = utc_day
+
                     bars = data["minute"]
                     last_bar = bars[-1]
                     old_end = coin.last_bar_end
-                    # Never fabricate missing history when a scanner was offline >200 minutes.
                     if old_end and last_bar["end"] - old_end > 199 * 60_000:
-                        if db.get(Position, symbol) is not None:
+                        if symbol in db_positions:
                             coin.error = "SCANNER GAP >199m with OPEN POSITION: manual review required; trading paused"
                             coin.signal = "PAUSED"
                             errors[symbol] = coin.error
                             continue
-                        # Safe resync if and ONLY IF no paper position exists.
-                        # Do not create stale historical entries for missed 15m periods.
                         old_end = None
                         coin.last_bar_end = None
                         coin.last_decision_end = None
                     future_bars = [b for b in bars if not old_end or b["end"] > old_end]
                     if old_end and future_bars and future_bars[0]["t"] != old_end:
                         raise PriceError("1m history gap: position unchanged")
-                    pos = db.get(Position, symbol)
+
+                    pos = db_positions.get(symbol)
                     trail_moved = False
                     if pos is not None and future_bars:
                         prior_stop = pos.stop
-                        check_position(db, pos, future_bars)
-                        trail_moved = (db.get(Position, symbol) is not None and pos.stop != prior_stop)
+                        closed = check_position(db, pos, future_bars)
+                        if closed is not None:
+                            db_positions.pop(symbol, None)
+                        else:
+                            trail_moved = pos.stop != prior_stop
+
                     coin.last_bar_end = last_bar["end"]
                     coin.updated_ms = now_ms
-                    if last_bar["end"] % 900000 == 0 and "quarter" in data and "hour" in data and coin.last_decision_end != last_bar["end"]:
+                    if (last_bar["end"] % 900000 == 0 and "quarter" in data
+                            and "hour" in data and coin.last_decision_end != last_bar["end"]):
                         evaluation = evaluate_smc(data["quarter"], data["hour"], last_bar["end"])
                         coin.score = evaluation["display"]
                         coin.trade_score = evaluation["trade_score"]
                         coin.signal = "WATCH" if evaluation["original"] else "NO SWEEP"
                         coin.last_decision_end = last_bar["end"]
-                        pos = db.get(Position, symbol)
-                        if pos is None and (symbol in top and evaluation["original"] and evaluation["trade_score"] >= 75
-                                            and coin.last_exit_15m_end != last_bar["end"]):
+                        pos = db_positions.get(symbol)
+                        if (pos is None and symbol in top and evaluation["original"]
+                                and evaluation["trade_score"] >= 75
+                                and coin.last_exit_15m_end != last_bar["end"]):
                             quote = tickers[symbol]["price"] if symbol in tickers else last_bar["c"]
-                            if open_position(db, coin, evaluation["original"], evaluation["trade_score"],
-                                             evaluation["stop_fraction"], quote, now_ms):
+                            opened = open_position(db, coin, evaluation["original"],
+                                                   evaluation["trade_score"],
+                                                   evaluation["stop_fraction"], quote, now_ms)
+                            if opened:
+                                db_positions[symbol] = opened
                                 LOG.info("Paper entry %s / %s / %s", symbol, coin.mode, coin.signal)
-                    if trail_moved and db.get(Position, symbol) is not None:
+                    if trail_moved and symbol in db_positions:
                         coin.signal = "TRAILING"
-                processed += 1
-            except Exception as exc:
-                errors[symbol] = str(exc)[:200]
-                LOG.exception("Scanner symbol %s failed", symbol)
-                with Session.begin() as db:
-                    coin_write_lock(db)
-                    init_coin(db, symbol).error = errors[symbol]
+                    processed += 1
+        except Exception:
+            LOG.exception("Batch scan processing failed: rollback complete; using original isolated per-symbol fallback")
+            processed = 0
+            processed = 0
+            for symbol in symbols:
+                if symbol not in gathered:
+                    with Session.begin() as db:
+                        coin_write_lock(db)
+                        c = init_coin(db, symbol)
+                        c.error = errors.get(symbol, "missing market data")
+                    continue
+                data = gathered[symbol]
+                try:
+                    with Session.begin() as db:
+                        coin_write_lock(db)
+                        coin = init_coin(db, symbol)
+                        coin.error = None
+                        if symbol in tickers:
+                            coin.last_price = tickers[symbol]["price"]
+                        if "daily" in data:
+                            coin.daily_open = data["daily"]
+                            coin.daily_date = utc_day
+                        bars = data["minute"]
+                        last_bar = bars[-1]
+                        old_end = coin.last_bar_end
+                        # Never fabricate missing history when a scanner was offline >200 minutes.
+                        if old_end and last_bar["end"] - old_end > 199 * 60_000:
+                            if db.get(Position, symbol) is not None:
+                                coin.error = "SCANNER GAP >199m with OPEN POSITION: manual review required; trading paused"
+                                coin.signal = "PAUSED"
+                                errors[symbol] = coin.error
+                                continue
+                            # Safe resync if and ONLY IF no paper position exists.
+                            # Do not create stale historical entries for missed 15m periods.
+                            old_end = None
+                            coin.last_bar_end = None
+                            coin.last_decision_end = None
+                        future_bars = [b for b in bars if not old_end or b["end"] > old_end]
+                        if old_end and future_bars and future_bars[0]["t"] != old_end:
+                            raise PriceError("1m history gap: position unchanged")
+                        pos = db.get(Position, symbol)
+                        trail_moved = False
+                        if pos is not None and future_bars:
+                            prior_stop = pos.stop
+                            check_position(db, pos, future_bars)
+                            trail_moved = (db.get(Position, symbol) is not None and pos.stop != prior_stop)
+                        coin.last_bar_end = last_bar["end"]
+                        coin.updated_ms = now_ms
+                        if last_bar["end"] % 900000 == 0 and "quarter" in data and "hour" in data and coin.last_decision_end != last_bar["end"]:
+                            evaluation = evaluate_smc(data["quarter"], data["hour"], last_bar["end"])
+                            coin.score = evaluation["display"]
+                            coin.trade_score = evaluation["trade_score"]
+                            coin.signal = "WATCH" if evaluation["original"] else "NO SWEEP"
+                            coin.last_decision_end = last_bar["end"]
+                            pos = db.get(Position, symbol)
+                            if pos is None and (symbol in top and evaluation["original"] and evaluation["trade_score"] >= 75
+                                                and coin.last_exit_15m_end != last_bar["end"]):
+                                quote = tickers[symbol]["price"] if symbol in tickers else last_bar["c"]
+                                if open_position(db, coin, evaluation["original"], evaluation["trade_score"],
+                                                 evaluation["stop_fraction"], quote, now_ms):
+                                    LOG.info("Paper entry %s / %s / %s", symbol, coin.mode, coin.signal)
+                        if trail_moved and db.get(Position, symbol) is not None:
+                            coin.signal = "TRAILING"
+                    processed += 1
+                except Exception as exc:
+                    errors[symbol] = str(exc)[:200]
+                    LOG.exception("Scanner symbol %s failed", symbol)
+                    with Session.begin() as db:
+                        coin_write_lock(db)
+                        init_coin(db, symbol).error = errors[symbol]
         with Session.begin() as db:
             st = db.get(BotState, 1)
             st.last_symbol_count = processed
