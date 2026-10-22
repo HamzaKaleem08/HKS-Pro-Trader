@@ -1339,6 +1339,60 @@ def history():
         return jsonify({"trades": [view_trade(t) for t in trades]})
 
 
+@app.get("/api/bitget-probe")
+def bitget_api_probe():
+    """Temporary, read-only Bitget connectivity check for Vercel PREVIEW only.
+
+    No scanner activation, no database writes and no trading decisions.
+    Remove after the provider reachability decision.
+    """
+    checks = (
+        ("tickers", "tickers", {"category": "USDT-FUTURES"}),
+        ("candles_1m", "candles", {"category": "USDT-FUTURES", "symbol": "BTCUSDT",
+                                   "interval": "1m", "limit": "5"}),
+        ("candles_15m", "candles", {"category": "USDT-FUTURES", "symbol": "BTCUSDT",
+                                    "interval": "15m", "limit": "5"}),
+        ("candles_1h", "candles", {"category": "USDT-FUTURES", "symbol": "BTCUSDT",
+                                   "interval": "1H", "limit": "5"}),
+    )
+
+    def check(spec):
+        name, endpoint, params = spec
+        result = {"ok": False}
+        try:
+            response = requests.get(
+                f"https://api.bitget.com/api/v3/market/{endpoint}",
+                params=params, headers={"User-Agent": "HKS-Paper-Diagnostic/1"},
+                timeout=(3, 7))
+            result["http_status"] = response.status_code
+            if response.status_code != 200:
+                return name, result
+            payload = response.json()
+            result["api_code"] = str(payload.get("code", ""))
+            data = payload.get("data")
+            if isinstance(data, list):
+                result["rows"] = len(data)
+                if name == "tickers":
+                    result["btc_found"] = any(
+                        item.get("symbol") == "BTCUSDT" for item in data
+                        if isinstance(item, dict))
+                else:
+                    result["candle_fields_valid"] = bool(data) and all(
+                        isinstance(row, list) and len(row) >= 5 for row in data)
+            result["ok"] = (result["api_code"] == "00000"
+                            and isinstance(data, list) and len(data) > 0
+                            and (name == "tickers" or result["candle_fields_valid"]))
+        except (requests.RequestException, ValueError, TypeError) as exc:
+            result["error_type"] = type(exc).__name__
+        return name, result
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        checks_result = dict(pool.map(check, checks))
+    return jsonify({"provider": "Bitget", "read_only": True,
+                    "checks": checks_result,
+                    "all_ok": all(row["ok"] for row in checks_result.values())})
+
+
 @app.get("/healthz")
 def healthz():
     # Lightweight liveness and keep-awake ping. Before-request automatically
