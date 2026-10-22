@@ -40,9 +40,11 @@ MAX_POSITION_CASH_FRACTION = D("0.3333333333")
 FEE_RATE = D(os.getenv("PAPER_FEE_RATE", "0.0004"))  # illustrated paper fee, NOT a quoted exchange fill
 if not ZERO <= FEE_RATE < D("0.02"):
     raise RuntimeError("PAPER_FEE_RATE must be between 0 and 0.02")
-SYMBOL_COUNT = max(1, min(100, int(os.getenv("HKS_SYMBOL_COUNT", "50"))))
-# Start at proven 50; increase via env only after timed 70/80/100-coin tests.
-CANDLE_BASE = os.getenv("BINANCE_FUTURES_BASE", "https://fapi.binance.com").rstrip("/")
+SYMBOL_COUNT = max(1, min(100, int(os.getenv("HKS_SYMBOL_COUNT", "70"))))
+# Default 70 dynamic coins as owner-approved; override via env if capacity requires.
+CANDLE_BASE = os.getenv("BITGET_FUTURES_BASE", "https://api.bitget.com").rstrip("/")
+_bitget_rate_lock = threading.Lock()
+_bitget_next_time = 0.0
 REQUEST_TIMEOUT = (4, 9)
 SESSION_WINDOW = (("London", ZoneInfo("Europe/London"), 8, 16),
                   ("New York", ZoneInfo("America/New_York"), 8, 17))
@@ -249,19 +251,58 @@ def utc_ms():
 
 
 def api(path, **params):
+    """Normalize Bitget v3 USDT-FUTURES market data to HKS's existing formats."""
+    global _bitget_next_time
+    if path in ("ticker/24hr", "ticker/price"):
+        endpoint = "tickers"
+        route = "/api/v3/market/tickers"
+        args = {"category": "USDT-FUTURES"}
+    elif path == "klines":
+        endpoint = "candles"
+        interval = params.get("interval")
+        if interval == "1d":
+            # Unlike Bitget's v3 1D, the classic 1Dutc granularity explicitly
+            # opens each daily candle at 00:00 UTC, as HKS expects.
+            route = "/api/v2/mix/market/candles"
+            args = {"symbol": params["symbol"], "productType": "USDT-FUTURES",
+                    "granularity": "1Dutc", "limit": str(params["limit"])}
+        else:
+            mapped = {"1m": "1m", "15m": "15m", "1h": "1H"}.get(interval)
+            if not mapped:
+                raise PriceError("Unsupported candle interval")
+            route = "/api/v3/market/candles"
+            args = {"category": "USDT-FUTURES", "symbol": params["symbol"],
+                    "interval": mapped, "limit": str(params["limit"])}
+    else:
+        raise PriceError("Unsupported market endpoint")
+    # Below provider limit of 20 requests per second per IP, within one instance.
+    with _bitget_rate_lock:
+        now = time.monotonic()
+        if now < _bitget_next_time:
+            time.sleep(_bitget_next_time - now)
+        _bitget_next_time = time.monotonic() + 0.08
     try:
-        res = requests.get(f"{CANDLE_BASE}/fapi/v1/{path}", params=params, timeout=REQUEST_TIMEOUT,
-                           headers={"User-Agent": "HKS-Paper-Demo/1"})
-        res.raise_for_status()
-        obj = res.json()
-        if isinstance(obj, dict) and (obj.get("code", 0) not in (0, None) and "msg" in obj):
-            raise PriceError(str(obj.get("msg")))
-        return obj
+        response = requests.get(f"{CANDLE_BASE}{route}",
+                                params=args, timeout=REQUEST_TIMEOUT,
+                                headers={"User-Agent": "HKS-Paper-Demo/1"})
+        response.raise_for_status()
+        payload = response.json()
+        if (not isinstance(payload, dict) or payload.get("code") != "00000"
+                or not isinstance(payload.get("data"), list)):
+            raise PriceError(f"Bitget {endpoint} returned an invalid API response")
+        data = payload["data"]
+        if path == "ticker/24hr":
+            return [{"symbol": item["symbol"], "lastPrice": item["lastPrice"],
+                     "quoteVolume": item["turnover24h"]} for item in data]
+        if path == "ticker/price":
+            return [{"symbol": item["symbol"], "price": item["lastPrice"]} for item in data]
+        # Bitget rows are timestamp/open/high/low/close/volume/turnover.
+        return sorted(data, key=lambda row: int(row[0]))
     except requests.HTTPError as exc:
         code = exc.response.status_code if exc.response is not None else "unknown"
-        raise PriceError(f"Binance USD-M Futures {path} returned HTTP {code}") from exc
-    except (ValueError, requests.RequestException) as exc:
-        raise PriceError(f"Binance USD-M Futures {path} unavailable ({type(exc).__name__})") from exc
+        raise PriceError(f"Bitget USDT Futures {endpoint} returned HTTP {code}") from exc
+    except (ValueError, KeyError, TypeError, IndexError, requests.RequestException) as exc:
+        raise PriceError(f"Bitget USDT Futures {endpoint} unavailable or malformed ({type(exc).__name__})") from exc
 
 
 def num(value):
@@ -297,12 +338,12 @@ def market_tickers():
         except (KeyError, ArithmeticError, ValueError, PriceError):
             continue
     if not result:
-        raise PriceError("No valid Binance USD-M USDT tickers")
+        raise PriceError("No valid Bitget USDT Futures tickers")
     return result
 
 
 def market_prices():
-    """Single Binance USD-M bulk-price snapshot, never synthesized from stale prices.
+    """Single Bitget USDT Futures bulk-price snapshot, never synthesized from stale prices.
 
     Separate from SMC candle evaluation: 2-second price updates must not
     trigger extra entries or partial-candle trade decisions.
@@ -352,9 +393,8 @@ def refresh_live_prices():
         symbols.update(db.scalars(select(Position.symbol)).all())
     if not symbols:
         return 0  # Deep scan publishes the Top 50 before quote stream starts.
-    # One bulk request on the normal path. If this particular Binance quote
-    # endpoint is blocked, fall back to the 24h ticker feed ALREADY used by
-    # the successful 50-coin scanner. Never fabricate prices.
+    # Both quote paths use the same public Bitget tickers endpoint.
+    # Never invent prices if the exchange data is unavailable.
     source = "ticker/price"
     try:
         latest = market_prices()
@@ -1402,18 +1442,19 @@ DASHBOARD_HTML = r'''<!doctype html>
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#101423"><title>HKS Pro Trader | Paper Engine</title>
+<link rel="icon" type="image/svg+xml" sizes="any" href="/static/hks-favicon.svg">
 <style>
 :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,'Segoe UI',Arial,sans-serif;color-scheme:dark;--bg:#090d19;--panel:#12192b;--panel2:#1a2338;--line:#2a3550;--text:#f4f7ff;--muted:#94a3bb;--green:#45dda5;--red:#ff6d8f;--gold:#f8c976;--blue:#789cff;--shadow:0 18px 60px #0004}
 body.light{color-scheme:light;--bg:#edf2f9;--panel:#fff;--panel2:#f5f7fc;--line:#dce4f1;--text:#182338;--muted:#64748b;--green:#067951;--red:#d62850;--gold:#a76a05;--blue:#335dd5;--shadow:0 18px 50px #30436016}
 *{box-sizing:border-box}body{background:var(--bg);color:var(--text);margin:0;min-height:100vh}button,input,select{font:inherit}button{cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}button:focus-visible,input:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 a{color:var(--blue)}.shell{max-width:1580px;margin:auto;padding:26px clamp(12px,3vw,35px) 55px}
-.top{display:flex;justify-content:space-between;gap:14px;align-items:center;margin-bottom:24px;flex-wrap:wrap}.brand{display:flex;align-items:center;gap:13px}.brandmark{width:48px;height:48px;display:grid;place-items:center;background:linear-gradient(140deg,#f6d78f,#dba249);border-radius:15px;color:#101725;box-shadow:0 4px 30px #f8c9762c}.brandmark svg{width:30px;height:30px}.brandname{font-size:22px;letter-spacing:.2px;font-weight:850;line-height:1.1}.brandline{font-size:11px;color:var(--muted);letter-spacing:2.1px;margin-top:5px}.actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.pill,.btn{border:1px solid var(--line);background:var(--panel);border-radius:11px;color:var(--text);padding:10px 12px;font-size:12px;font-weight:650}.btn:hover{border-color:var(--blue)}.btn.primary{background:linear-gradient(115deg,#eac575,#ca9349);color:#171c2a;border:0}.btn.danger{color:var(--red)}.dot{width:7px;height:7px;border-radius:50%;display:inline-block;background:var(--muted);margin-right:6px}.dot.ok{background:var(--green);box-shadow:0 0 0 4px #45dda515}.dot.fail{background:var(--red)}.dot.warn{background:var(--gold)}
+.top{display:flex;justify-content:space-between;gap:14px;align-items:center;margin-bottom:24px;flex-wrap:wrap}.brand{display:flex;align-items:center;gap:13px}.brandmark{width:48px;height:48px;flex:none;display:grid;place-items:center;border-radius:13px;overflow:hidden;background:#081320;box-shadow:0 4px 22px #f8c9762c}.brandmark img{display:block;width:100%;height:100%;object-fit:contain}.brandname{font-size:22px;letter-spacing:.2px;font-weight:850;line-height:1.1}.brandline{font-size:11px;color:var(--muted);letter-spacing:2.1px;margin-top:5px}.actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.pill,.btn{border:1px solid var(--line);background:var(--panel);border-radius:11px;color:var(--text);padding:10px 12px;font-size:12px;font-weight:650}.btn:hover{border-color:var(--blue)}.btn.primary{background:linear-gradient(115deg,#eac575,#ca9349);color:#171c2a;border:0}.btn.danger{color:var(--red)}.dot{width:7px;height:7px;border-radius:50%;display:inline-block;background:var(--muted);margin-right:6px}.dot.ok{background:var(--green);box-shadow:0 0 0 4px #45dda515}.dot.fail{background:var(--red)}.dot.warn{background:var(--gold)}
 .stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:13px}.panel,.stat{background:var(--panel);border:1px solid var(--line);border-radius:17px;box-shadow:var(--shadow)}.stat{padding:18px 17px;min-height:112px}.caption{font-size:11px;letter-spacing:.3px;color:var(--muted);font-weight:650;text-transform:uppercase}.value{font-size:clamp(19px,2.3vw,28px);font-weight:820;letter-spacing:-.8px;margin-top:18px;white-space:nowrap}.positive{color:var(--green)!important}.negative{color:var(--red)!important}.muted{color:var(--muted)}.gold{color:var(--gold)}.small{font-size:11px}.notice{padding:12px 16px;border:1px solid #eeb85766;color:var(--gold);background:#d4a44312;border-radius:12px;margin-bottom:15px;font-size:12px}
 .main{display:grid;grid-template-columns:1fr;gap:15px;margin-top:16px}.side-stack{display:flex;flex-direction:column;gap:15px}.side-stack .graph{height:220px}.panel{padding:17px}.heading{font-weight:760;font-size:14px;display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;gap:8px}.sub{font-size:11px;color:var(--muted);font-weight:400}.graph{height:246px;width:100%;display:block}.graph text{fill:var(--muted);font-size:11px}.timeframe{display:flex;gap:5px}.timeframe button,.mode-switch button{background:var(--panel2);color:var(--muted);border:1px solid var(--line);font-size:11px;padding:6px 9px;border-radius:7px}.timeframe button.selected,.mode-switch button.selected{color:var(--text);border-color:var(--blue);background:color-mix(in srgb,var(--blue) 12%,var(--panel2))}.grid-market{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:9px;max-height:680px;overflow-y:auto;padding:2px 4px 3px 1px}.coin{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px;cursor:pointer;transition:border-color .18s,transform .15s}.coin:hover,.coin.active{border-color:var(--blue);transform:translateY(-1px)}.coin-top{display:flex;align-items:center;gap:10px}.coin img,.coin .fallback{width:31px;height:31px;flex:none;border-radius:50%}.coin img{object-fit:contain;background:transparent}.coin .fallback{display:grid;place-items:center;font-size:14px;letter-spacing:.1px;color:#182339;font-weight:900;border:1px solid #9d6a2866;background:linear-gradient(135deg,#ffe4a3,#dc9d49);box-shadow:inset 0 1px 2px #fff8,0 2px 7px #0002}.coin .fallback:nth-child(2){user-select:none}.coin-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.coin-top>div:nth-child(3){min-width:0}.coin-logo[hidden]{display:none}.coin .fallback[hidden]{display:none!important}.coin-name{font-weight:780;font-size:13px}.coin-tag{font-size:10px;color:var(--muted);margin-top:3px}.coin-price{margin-left:auto;text-align:right;font-weight:750;font-size:13px}.coin-change{font-size:10px;margin-top:3px;font-weight:760}.coin-score{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);margin-top:12px;padding-top:10px;gap:5px}.score{font-size:20px;font-weight:850}.mode-switch{display:flex;gap:3px}.mode-switch button{padding:5px 7px}.global-switch{display:flex;gap:2px;padding:3px;border:1px solid var(--line);background:var(--panel);border-radius:11px;align-items:center}.global-switch .global-label{color:var(--muted);font-size:11px;font-weight:700;padding:0 7px}.global-switch button{border:0;border-radius:8px;padding:8px 10px;background:transparent;color:var(--muted);font-size:12px;font-weight:750}.global-switch button.selected{background:var(--blue);color:#fff}.coin-error{font-size:10px;color:var(--red);margin-top:6px;word-break:break-word}.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.search{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:9px;padding:8px 11px;width:140px;max-width:100%;font-size:12px}.market-header{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:13px;flex-wrap:wrap}.market-header .heading{margin:0}.chartbox{min-height:400px;height:490px;background:var(--panel2);border-radius:12px;overflow:hidden;position:relative}.chartbox .waiting{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:12px}.chartbox iframe{border:0}.rows{margin-top:16px;display:grid;grid-template-columns:1.2fr 1fr;gap:15px}.tablewrap{width:100%;overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap}th{color:var(--muted);font-size:10px;font-weight:650;text-align:left;border-bottom:1px solid var(--line);padding:12px 8px}td{padding:12px 8px;border-bottom:1px solid var(--line)}tr:last-child td{border:0}tbody tr{cursor:pointer}tbody tr:hover{background:var(--panel2)}.empty{text-align:center;color:var(--muted);padding:28px;font-size:12px}.footer{font-size:11px;text-align:center;color:var(--muted);margin:26px 0}.tag{border-radius:6px;padding:3px 6px;background:var(--panel2);font-size:10px;font-weight:700}.modalbg{display:none;position:fixed;inset:0;background:#040918b9;z-index:100;justify-content:center;align-items:center;padding:16px}.modalbg.on{display:flex}.modal{border:1px solid var(--line);border-radius:16px;padding:24px;background:var(--panel);max-width:480px;max-height:90vh;overflow:auto;width:100%;box-shadow:0 40px 110px #0008}.modal h3{margin:0 0 18px}.modal.history-modal{max-width:min(96vw,1320px)}.history-modal .tablewrap table{min-width:1120px}.field{display:block;margin-bottom:14px;font-size:12px;color:var(--muted)}.field input{display:block;margin-top:7px;width:100%;color:var(--text);padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--panel2)}.formactions{display:flex;justify-content:flex-end;gap:7px}.details{display:grid;grid-template-columns:1fr 1fr;gap:15px 10px}.details .value{font-size:14px;margin-top:5px;white-space:normal}.statusline{font-size:11px;color:var(--muted);margin-top:7px}.sync{font-size:11px;color:var(--muted)}@media(max-width:1050px){.stats{grid-template-columns:repeat(3,1fr)}.main,.rows{grid-template-columns:1fr}.chartbox{height:410px}}@media(max-width:560px){.shell{padding:14px 10px 34px}.stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.stat{min-height:95px;padding:13px}.value{font-size:20px;margin-top:12px}.brandname{font-size:18px}.panel{padding:13px}.grid-market{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.coin{padding:9px}.coin img,.coin .fallback{width:25px;height:25px}.coin-price{font-size:11px}.coin-name{font-size:11px}.mode-switch button{font-size:10px;padding:5px}.chartbox{height:355px}.graph{height:220px}}
 </style>
 </head>
 <body><div class="shell">
-<header class="top"><div class="brand"><div class="brandmark"><svg viewBox="0 0 32 32" fill="none" aria-label="HKS"><path d="M3 25 11 15l6 5L29 6" stroke="currentColor" stroke-width="3.3" stroke-linejoin="round" stroke-linecap="round"/><path d="M22 6h7v7" stroke="currentColor" stroke-width="3.3" stroke-linecap="round"/></svg></div><div><div class="brandname">HKS <span class="gold">Pro Trader</span></div><div class="brandline">LIGHTWEIGHT PAPER ENGINE</div></div></div><div class="actions"><span class="pill" id="scanner-pill"><i class="dot"></i><span>Scanner: Checking…</span></span><div class="global-switch" role="group" aria-label="Global strategy mode"><span class="global-label">ALL COINS</span><button type="button" id="global-normal" class="selected" onclick="changeGlobalMode('NORMAL')">Normal</button><button type="button" id="global-reverse" onclick="changeGlobalMode('REVERSE')">Reverse</button></div><button class="btn" id="theme-btn" onclick="toggleTheme()">☼ Light Mode</button><button class="btn" onclick="showHistory()">Trade History</button><button class="btn primary" onclick="openTools()">Tools / Reset 1K</button></div></header>
+<header class="top"><div class="brand"><div class="brandmark"><img src="/static/hks-modern-chart.svg" width="48" height="48" alt="HKS Modern Chart logo"></div><div><div class="brandname">HKS <span class="gold">Pro Trader</span></div><div class="brandline">LIGHTWEIGHT PAPER ENGINE</div></div></div><div class="actions"><span class="pill" id="scanner-pill"><i class="dot"></i><span>Scanner: Checking…</span></span><div class="global-switch" role="group" aria-label="Global strategy mode"><span class="global-label">ALL COINS</span><button type="button" id="global-normal" class="selected" onclick="changeGlobalMode('NORMAL')">Normal</button><button type="button" id="global-reverse" onclick="changeGlobalMode('REVERSE')">Reverse</button></div><button class="btn" id="theme-btn" onclick="toggleTheme()">☼ Light Mode</button><button class="btn" onclick="showHistory()">Trade History</button><button class="btn primary" onclick="openTools()">Tools / Reset 1K</button></div></header>
 {% if sqlite_mode %}<div class="notice">⚠ Running on local SQLite. For Replit Autoscale, configure a persistent PostgreSQL DATABASE_URL before relying on saved trades, wallet or modes.</div>{% endif %}
 {% if not reset_ready %}<div class="notice">⚠ Reset 1K is disabled until HKS_RESET_PASSWORD is stored privately in Replit Secrets.</div>{% endif %}
 <div class="statusline" style="margin:-12px 0 14px">Global Normal/Reverse applies to all new entries. Per-coin custom mode remains available; changing Global mode resets those custom choices. Open positions keep their original direction.</div>
@@ -1426,7 +1467,7 @@ a{color:var(--blue)}.shell{max-width:1580px;margin:auto;padding:26px clamp(12px,
 </div>
 <div class="main">
 
- <section class="panel"><div class="heading">TradingView Chart <span><span class="sub" id="selected-symbol">BTCUSDT</span> · <a class="sub" id="chart-external" href="https://www.tradingview.com/chart/?symbol=BINANCE%3ABTCUSDT.P" target="_blank" rel="noopener noreferrer">Open on TradingView ↗</a></span></div><div class="timeframe" style="margin-bottom:12px"><button onclick="selectTF('1')" data-tf="1">1m</button><button onclick="selectTF('15')" class="selected" data-tf="15">15m</button><button onclick="selectTF('60')" data-tf="60">1h</button><button onclick="selectTF('D')" data-tf="D">1D</button></div><div class="chartbox" id="chart"><div class="waiting">Loading TradingView chart…</div></div><div class="statusline">Timeframe buttons affect chart display only. Strategy decisions remain on completed 15m candles.</div></section>
+ <section class="panel"><div class="heading">TradingView Chart <span><span class="sub" id="selected-symbol">BTCUSDT</span> · <a class="sub" id="chart-external" href="https://www.tradingview.com/chart/?symbol=BITGET%3ABTCUSDT.P" target="_blank" rel="noopener noreferrer">Open on TradingView ↗</a></span></div><div class="timeframe" style="margin-bottom:12px"><button onclick="selectTF('1')" data-tf="1">1m</button><button onclick="selectTF('15')" class="selected" data-tf="15">15m</button><button onclick="selectTF('60')" data-tf="60">1h</button><button onclick="selectTF('D')" data-tf="D">1D</button></div><div class="chartbox" id="chart"><div class="waiting">Loading TradingView chart…</div></div><div class="statusline">Timeframe buttons affect chart display only. Strategy decisions remain on completed 15m candles.</div></section>
 </div>
 <div class="rows">
  <section class="panel"><div class="market-header"><div class="heading">Top 50 Dynamic Coins <span class="sub" id="coin-count">0 pairs</span></div><div class="toolbar"><input class="search" id="coin-search" aria-label="Search coin" placeholder="Search coin…" oninput="renderCoins()"><span class="sync" id="market-status">UTC daily change</span></div></div><div id="coin-grid" class="grid-market"><div class="empty">Starting the scanner automatically. Coins will appear after market data loads.</div></div><div class="statusline">Stablecoin base pairs excluded. Score is a UI progress score; trading still requires the original sweep and ≥75 actual entry score.</div></section>
@@ -1499,7 +1540,7 @@ function renderChart(){
  // TradingView embeds require the official container hierarchy. The exact
  // Futures/perpetual market is retained, never silently substituted with Spot.
  const parent=el('chart');parent.replaceChildren();
- const symbol='BINANCE:'+selected+'.P';
+ const symbol='BITGET:'+selected+'.P';
  const external='https://www.tradingview.com/chart/?symbol='+encodeURIComponent(symbol)+'&interval='+encodeURIComponent(timeframe);
  el('chart-external').href=external;
  const holder=document.createElement('div');holder.className='tradingview-widget-container';
