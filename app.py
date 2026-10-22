@@ -42,7 +42,9 @@ if not ZERO <= FEE_RATE < D("0.02"):
     raise RuntimeError("PAPER_FEE_RATE must be between 0 and 0.02")
 SYMBOL_COUNT = max(1, min(100, int(os.getenv("HKS_SYMBOL_COUNT", "50"))))
 # Start at proven 50; increase via env only after timed 70/80/100-coin tests.
-CANDLE_BASE = os.getenv("BINANCE_FUTURES_BASE", "https://fapi.binance.com").rstrip("/")
+CANDLE_BASE = os.getenv("BITGET_FUTURES_BASE", "https://api.bitget.com").rstrip("/")
+_bitget_rate_lock = threading.Lock()
+_bitget_next_time = 0.0
 REQUEST_TIMEOUT = (4, 9)
 SESSION_WINDOW = (("London", ZoneInfo("Europe/London"), 8, 16),
                   ("New York", ZoneInfo("America/New_York"), 8, 17))
@@ -249,19 +251,48 @@ def utc_ms():
 
 
 def api(path, **params):
+    """Normalize Bitget v3 USDT-FUTURES market data to HKS's existing formats."""
+    global _bitget_next_time
+    if path in ("ticker/24hr", "ticker/price"):
+        endpoint = "tickers"
+        args = {"category": "USDT-FUTURES"}
+    elif path == "klines":
+        endpoint = "candles"
+        interval = {"1m": "1m", "15m": "15m", "1h": "1H", "1d": "1D"}.get(params.get("interval"))
+        if not interval:
+            raise PriceError("Unsupported candle interval")
+        args = {"category": "USDT-FUTURES", "symbol": params["symbol"],
+                "interval": interval, "limit": str(params["limit"])}
+    else:
+        raise PriceError("Unsupported market endpoint")
+    # Below provider limit of 20 requests per second per IP, within one instance.
+    with _bitget_rate_lock:
+        now = time.monotonic()
+        if now < _bitget_next_time:
+            time.sleep(_bitget_next_time - now)
+        _bitget_next_time = time.monotonic() + 0.08
     try:
-        res = requests.get(f"{CANDLE_BASE}/fapi/v1/{path}", params=params, timeout=REQUEST_TIMEOUT,
-                           headers={"User-Agent": "HKS-Paper-Demo/1"})
-        res.raise_for_status()
-        obj = res.json()
-        if isinstance(obj, dict) and (obj.get("code", 0) not in (0, None) and "msg" in obj):
-            raise PriceError(str(obj.get("msg")))
-        return obj
+        response = requests.get(f"{CANDLE_BASE}/api/v3/market/{endpoint}",
+                                params=args, timeout=REQUEST_TIMEOUT,
+                                headers={"User-Agent": "HKS-Paper-Demo/1"})
+        response.raise_for_status()
+        payload = response.json()
+        if (not isinstance(payload, dict) or payload.get("code") != "00000"
+                or not isinstance(payload.get("data"), list)):
+            raise PriceError(f"Bitget {endpoint} returned an invalid API response")
+        data = payload["data"]
+        if path == "ticker/24hr":
+            return [{"symbol": item["symbol"], "lastPrice": item["lastPrice"],
+                     "quoteVolume": item["turnover24h"]} for item in data]
+        if path == "ticker/price":
+            return [{"symbol": item["symbol"], "price": item["lastPrice"]} for item in data]
+        # Bitget rows are timestamp/open/high/low/close/volume/turnover.
+        return sorted(data, key=lambda row: int(row[0]))
     except requests.HTTPError as exc:
         code = exc.response.status_code if exc.response is not None else "unknown"
-        raise PriceError(f"Binance USD-M Futures {path} returned HTTP {code}") from exc
-    except (ValueError, requests.RequestException) as exc:
-        raise PriceError(f"Binance USD-M Futures {path} unavailable ({type(exc).__name__})") from exc
+        raise PriceError(f"Bitget USDT Futures {endpoint} returned HTTP {code}") from exc
+    except (ValueError, KeyError, TypeError, IndexError, requests.RequestException) as exc:
+        raise PriceError(f"Bitget USDT Futures {endpoint} unavailable or malformed ({type(exc).__name__})") from exc
 
 
 def num(value):
@@ -297,12 +328,12 @@ def market_tickers():
         except (KeyError, ArithmeticError, ValueError, PriceError):
             continue
     if not result:
-        raise PriceError("No valid Binance USD-M USDT tickers")
+        raise PriceError("No valid Bitget USDT Futures tickers")
     return result
 
 
 def market_prices():
-    """Single Binance USD-M bulk-price snapshot, never synthesized from stale prices.
+    """Single Bitget USDT Futures bulk-price snapshot, never synthesized from stale prices.
 
     Separate from SMC candle evaluation: 2-second price updates must not
     trigger extra entries or partial-candle trade decisions.
@@ -352,9 +383,8 @@ def refresh_live_prices():
         symbols.update(db.scalars(select(Position.symbol)).all())
     if not symbols:
         return 0  # Deep scan publishes the Top 50 before quote stream starts.
-    # One bulk request on the normal path. If this particular Binance quote
-    # endpoint is blocked, fall back to the 24h ticker feed ALREADY used by
-    # the successful 50-coin scanner. Never fabricate prices.
+    # Both quote paths use the same public Bitget tickers endpoint.
+    # Never invent prices if the exchange data is unavailable.
     source = "ticker/price"
     try:
         latest = market_prices()
@@ -1393,6 +1423,45 @@ def bitget_api_probe():
                     "all_ok": all(row["ok"] for row in checks_result.values())})
 
 
+@app.get("/api/bitget-scanner-check")
+def bitget_scanner_check():
+    """Preview-only provider warmup diagnostic; no DB writes or trading."""
+    started = time.monotonic()
+    try:
+        tickers = market_tickers()
+        selection = [symbol for symbol, _ in sorted(
+            tickers.items(), key=lambda x: x[1]["volume"], reverse=True)[:10]]
+        now_ms = utc_ms()
+        utc_day = datetime.fromtimestamp(now_ms / 1000, timezone.utc).date().isoformat()
+
+        def check(symbol):
+            try:
+                minute = candles(symbol, "1m", 200, now_ms)
+                quarter = candles(symbol, "15m", 35, now_ms)
+                hourly = candles(symbol, "1h", 25, now_ms)
+                today_open = daily_open(symbol, utc_day, now_ms)
+                if not minute or not quarter or not hourly:
+                    raise PriceError("Empty completed candle series")
+                score = evaluate_smc(quarter, hourly, quarter[-1]["end"])
+                return {"ok": True, "m1": len(minute), "m15": len(quarter),
+                        "h1": len(hourly), "utc_open": today_open > ZERO,
+                        "score_valid": 0 <= score["trade_score"] <= 100}
+            except Exception as exc:
+                return {"ok": False, "error": str(exc)[:180]}
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            rows = dict(zip(selection, pool.map(check, selection)))
+        return jsonify({"provider": "Bitget", "read_only": True,
+                        "coins_checked": len(rows),
+                        "all_ok": all(x["ok"] for x in rows.values()),
+                        "duration_ms": int((time.monotonic() - started) * 1000),
+                        "checks": rows})
+    except Exception as exc:
+        return jsonify({"provider": "Bitget", "read_only": True, "all_ok": False,
+                        "error": str(exc)[:180],
+                        "duration_ms": int((time.monotonic() - started) * 1000)}), 503
+
+
 @app.get("/healthz")
 def healthz():
     # Lightweight liveness and keep-awake ping. Before-request automatically
@@ -1481,7 +1550,7 @@ a{color:var(--blue)}.shell{max-width:1580px;margin:auto;padding:26px clamp(12px,
 </div>
 <div class="main">
 
- <section class="panel"><div class="heading">TradingView Chart <span><span class="sub" id="selected-symbol">BTCUSDT</span> · <a class="sub" id="chart-external" href="https://www.tradingview.com/chart/?symbol=BINANCE%3ABTCUSDT.P" target="_blank" rel="noopener noreferrer">Open on TradingView ↗</a></span></div><div class="timeframe" style="margin-bottom:12px"><button onclick="selectTF('1')" data-tf="1">1m</button><button onclick="selectTF('15')" class="selected" data-tf="15">15m</button><button onclick="selectTF('60')" data-tf="60">1h</button><button onclick="selectTF('D')" data-tf="D">1D</button></div><div class="chartbox" id="chart"><div class="waiting">Loading TradingView chart…</div></div><div class="statusline">Timeframe buttons affect chart display only. Strategy decisions remain on completed 15m candles.</div></section>
+ <section class="panel"><div class="heading">TradingView Chart <span><span class="sub" id="selected-symbol">BTCUSDT</span> · <a class="sub" id="chart-external" href="https://www.tradingview.com/chart/?symbol=BITGET%3ABTCUSDT.P" target="_blank" rel="noopener noreferrer">Open on TradingView ↗</a></span></div><div class="timeframe" style="margin-bottom:12px"><button onclick="selectTF('1')" data-tf="1">1m</button><button onclick="selectTF('15')" class="selected" data-tf="15">15m</button><button onclick="selectTF('60')" data-tf="60">1h</button><button onclick="selectTF('D')" data-tf="D">1D</button></div><div class="chartbox" id="chart"><div class="waiting">Loading TradingView chart…</div></div><div class="statusline">Timeframe buttons affect chart display only. Strategy decisions remain on completed 15m candles.</div></section>
 </div>
 <div class="rows">
  <section class="panel"><div class="market-header"><div class="heading">Top 50 Dynamic Coins <span class="sub" id="coin-count">0 pairs</span></div><div class="toolbar"><input class="search" id="coin-search" aria-label="Search coin" placeholder="Search coin…" oninput="renderCoins()"><span class="sync" id="market-status">UTC daily change</span></div></div><div id="coin-grid" class="grid-market"><div class="empty">Starting the scanner automatically. Coins will appear after market data loads.</div></div><div class="statusline">Stablecoin base pairs excluded. Score is a UI progress score; trading still requires the original sweep and ≥75 actual entry score.</div></section>
@@ -1554,7 +1623,7 @@ function renderChart(){
  // TradingView embeds require the official container hierarchy. The exact
  // Futures/perpetual market is retained, never silently substituted with Spot.
  const parent=el('chart');parent.replaceChildren();
- const symbol='BINANCE:'+selected+'.P';
+ const symbol='BITGET:'+selected+'.P';
  const external='https://www.tradingview.com/chart/?symbol='+encodeURIComponent(symbol)+'&interval='+encodeURIComponent(timeframe);
  el('chart-external').href=external;
  const holder=document.createElement('div');holder.className='tradingview-widget-container';
