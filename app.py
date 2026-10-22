@@ -1525,6 +1525,43 @@ def bitget_capacity_check():
             "duration_ms": int((time.monotonic() - started) * 1000)}), 503
 
 
+@app.get("/api/bitget-db-latency-check")
+def bitget_db_latency_check():
+    """PREVIEW-ONLY read-only SQL timings; no scanner, orders or DB writes."""
+    if os.getenv("VERCEL_ENV") != "preview":
+        abort(404)
+    try:
+        rounds = int(request.args.get("rounds", "20"))
+    except ValueError:
+        abort(400)
+    if rounds not in (10, 20, 40):
+        abort(400)
+    started = time.monotonic()
+    durations_ms = []
+    try:
+        # Exercise the same SQLAlchemy session/transaction lifecycle the
+        # full scanner uses, without acquiring write locks or modifying data.
+        for _ in range(rounds):
+            t0 = time.monotonic()
+            with Session.begin() as db:
+                db.execute(text("SELECT 1")).scalar()
+                db.scalar(select(func.count()).select_from(Coin))
+                db.scalar(select(func.count()).select_from(Position))
+            durations_ms.append(round((time.monotonic()-t0)*1000, 2))
+        ordered = sorted(durations_ms)
+        return jsonify({"read_only": True, "db_writes": 0,
+                        "transactions": rounds,
+                        "avg_transaction_ms": round(sum(durations_ms)/rounds, 1),
+                        "median_transaction_ms": ordered[rounds//2],
+                        "max_transaction_ms": ordered[-1],
+                        "p95_transaction_ms": ordered[min(rounds-1, int(rounds*.95))],
+                        "total_ms": round((time.monotonic()-started)*1000, 1)})
+    except Exception as exc:
+        return jsonify({"read_only": True, "db_writes": 0, "ok": False,
+                        "error_type": type(exc).__name__,
+                        "elapsed_ms": round((time.monotonic()-started)*1000, 1)}), 503
+
+
 @app.get("/healthz")
 def healthz():
     # Lightweight liveness and keep-awake ping. Before-request automatically
