@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="HKS Pro Trader Modern Chart logo">
+<defs>
+  <linearGradient id="g" x1="0" y1="1" x2="0.9" y2="0"><stop offset="0" stop-color="#b97917"/><stop offset=".47" stop-color="#ffd978"/><stop offset=".78" stop-color="#f3b640"/><stop offset="1" stop-color="#fff1b7"/></linearGradient>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#112339"/><stop offset="1" stop-color="#050912"/></linearGradient>
+</defs>
+<rect x="2" y="2" width="124" height="124" rx="23" fill="url(#bg)" stroke="#9d6b26" stroke-width="2"/>
+<path d="M18 80 A48 48 0 0 1 101 38" stroke="url(#g)" stroke-width="5.5" fill="none" stroke-linecap="round"/>
+<path d="M21 82 A48 48 0 0 0 104 83" stroke="#b78125" stroke-width="2.6" fill="none" opacity=".85"/>
+<g fill="url(#g)">
+  <rect x="26" y="69" width="10" height="16" rx="1"/>
+  <rect x="41" y="60" width="10" height="25" rx="1"/>
+  <rect x="56" y="49" width="10" height="36" rx="1"/>
+  <rect x="71" y="38" width="10" height="47" rx="1"/>
+</g>
+<path d="M18 84 C36 82 49 76 63 65 S88 45 106 29" fill="none" stroke="#120c02" stroke-width="9" stroke-linecap="round"/>
+<path d="M18 84 C36 82 49 76 63 65 S88 45 106 29" fill="none" stroke="url(#g)" stroke-width="5" stroke-linecap="round"/>
+<path d="M93 26 L112 20 L107 42 Z" fill="url(#g)" stroke="#ffe8a0" stroke-width="1"/>
+<text x="64" y="109" text-anchor="middle" font-family="Arial,DejaVu Sans,sans-serif" font-size="22" font-weight="900" letter-spacing="1" fill="#ffd477">HKS</text>
+</svg>
