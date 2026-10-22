@@ -40,8 +40,8 @@ MAX_POSITION_CASH_FRACTION = D("0.3333333333")
 FEE_RATE = D(os.getenv("PAPER_FEE_RATE", "0.0004"))  # illustrated paper fee, NOT a quoted exchange fill
 if not ZERO <= FEE_RATE < D("0.02"):
     raise RuntimeError("PAPER_FEE_RATE must be between 0 and 0.02")
-SYMBOL_COUNT = max(1, min(100, int(os.getenv("HKS_SYMBOL_COUNT", "50"))))
-# Start at proven 50; increase via env only after timed 70/80/100-coin tests.
+SYMBOL_COUNT = max(1, min(100, int(os.getenv("HKS_SYMBOL_COUNT", "70"))))
+# Default 70 dynamic coins as owner-approved; override via env if capacity requires.
 CANDLE_BASE = os.getenv("BITGET_FUTURES_BASE", "https://api.bitget.com").rstrip("/")
 _bitget_rate_lock = threading.Lock()
 _bitget_next_time = 0.0
