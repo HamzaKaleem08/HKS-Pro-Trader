@@ -1472,6 +1472,59 @@ def bitget_scanner_check():
                         "duration_ms": int((time.monotonic() - started) * 1000)}), 503
 
 
+@app.get("/api/bitget-capacity-check")
+def bitget_capacity_check():
+    """Read-only preview capacity check; no DB writes, entries, SL, or cron changes."""
+    if os.getenv("VERCEL_ENV") != "preview":
+        abort(404)
+    try:
+        count = int(request.args.get("coins", "50"))
+    except ValueError:
+        abort(400)
+    if count not in (50, 70, 80, 100):
+        abort(400)
+    started = time.monotonic()
+    now_ms = utc_ms()
+    utc_day = datetime.fromtimestamp(now_ms / 1000, timezone.utc).date().isoformat()
+    try:
+        market = market_tickers()
+        selection = [symbol for symbol, _ in sorted(
+            market.items(), key=lambda item: item[1]["volume"], reverse=True)[:count]]
+
+        def check(symbol):
+            try:
+                m1 = candles(symbol, "1m", 200, now_ms)
+                m15 = candles(symbol, "15m", 35, now_ms)
+                h1 = candles(symbol, "1h", 25, now_ms)
+                op = daily_open(symbol, utc_day, now_ms)
+                if not m1 or not m15 or not h1 or op <= ZERO:
+                    raise PriceError("Incomplete candle/daily-open data")
+                score = evaluate_smc(m15, h1, m15[-1]["end"])
+                if not 0 <= score["trade_score"] <= 100:
+                    raise PriceError("Invalid strategy score")
+                return symbol, None
+            except Exception as exc:
+                return symbol, str(exc)[:150]
+
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            outcomes = dict(pool.map(check, selection))
+        failures = {symbol: err for symbol, err in outcomes.items() if err}
+        duration = int((time.monotonic() - started) * 1000)
+        return jsonify({
+            "provider": "Bitget", "read_only": True,
+            "requested": count, "selected": len(selection),
+            "passed": len(selection) - len(failures),
+            "failed": len(failures), "duration_ms": duration,
+            "under_30_seconds": duration < 30000,
+            "all_ok": len(selection) == count and not failures,
+            "errors": failures})
+    except Exception as exc:
+        return jsonify({
+            "provider": "Bitget", "read_only": True, "requested": count,
+            "all_ok": False, "error": str(exc)[:150],
+            "duration_ms": int((time.monotonic() - started) * 1000)}), 503
+
+
 @app.get("/healthz")
 def healthz():
     # Lightweight liveness and keep-awake ping. Before-request automatically
