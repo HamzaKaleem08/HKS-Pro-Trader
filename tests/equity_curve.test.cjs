@@ -10,7 +10,7 @@ const nodes = [];
 const summary = {textContent:''};
 const svg = {replaceChildren(){nodes.length = 0}, appendChild(n){nodes.push(n)}};
 const ctx = {
-  document: {createElementNS(tag) {
+  document: {createElementNS(namespace, tag) {
     return {tag, attrs:{}, setAttribute(k,v){this.attrs[k]=String(v)},
             appendChild(){}, set textContent(v){this.txt=v}};
   }},
@@ -33,7 +33,6 @@ ctx.equityRecent=ledger; // context lexical bindings are assigned below
 ctx.argumentsLedger=ledger;
 vm.runInContext('equityRecent=argumentsLedger; equityRange=30;',ctx);
 vm.runInContext('renderEquity()',ctx);
-console.log('DEBUG NODES',nodes.map(x=>({tag:x.tag,strokeWidth:x.attrs['stroke-width'],stroke:x.attrs.stroke})));console.log('DEBUG SUMMARY',summary.textContent);
 const strokes=nodes.filter(x=>x.tag==='path'&&x.attrs['stroke-width']==='4.25');
 assert.equal(strokes.length,4,'One segment for each real closed-trade balance change');
 assert.deepEqual(strokes.map(x=>x.attrs.stroke),['#35df9f','#ff687a','#35df9f','#ff687a']);
