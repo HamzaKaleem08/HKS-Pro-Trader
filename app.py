@@ -1529,6 +1529,17 @@ def state():
                         "fee_rate": fmt(FEE_RATE)})
 
 
+@app.get("/api/equity")
+def equity_history():
+    """Full recorded closed-trade equity history for the optional All view.
+    Only persisted hks_equity_point balances are exposed; no interpolated data.
+    """
+    with Session() as db:
+        points = db.scalars(select(EquityPoint).order_by(EquityPoint.id.asc())).all()
+        return jsonify({"points": [{"t": p.time_ms, "balance": fmt(p.balance, 4)}
+                                   for p in points]})
+
+
 @app.get("/api/history")
 def history():
     try:
@@ -1611,7 +1622,7 @@ body.light{color-scheme:light;--bg:#edf2f9;--panel:#fff;--panel2:#f5f7fc;--line:
 a{color:var(--blue)}.shell{max-width:1580px;margin:auto;padding:26px clamp(12px,3vw,35px) 55px}
 .top{display:flex;justify-content:space-between;gap:14px;align-items:center;margin-bottom:24px;flex-wrap:wrap}.brand{display:flex;align-items:center;gap:13px}.brandmark{width:48px;height:48px;flex:none;display:grid;place-items:center;border-radius:13px;overflow:hidden;background:#081320;box-shadow:0 4px 22px #f8c9762c}.brandmark img{display:block;width:100%;height:100%;object-fit:contain}.brandname{font-size:22px;letter-spacing:.2px;font-weight:850;line-height:1.1}.brandline{font-size:11px;color:var(--muted);letter-spacing:2.1px;margin-top:5px}.actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.pill,.btn{border:1px solid var(--line);background:var(--panel);border-radius:11px;color:var(--text);padding:10px 12px;font-size:12px;font-weight:650}.btn:hover{border-color:var(--blue)}.btn.primary{background:linear-gradient(115deg,#eac575,#ca9349);color:#171c2a;border:0}.btn.danger{color:var(--red)}.dot{width:7px;height:7px;border-radius:50%;display:inline-block;background:var(--muted);margin-right:6px}.dot.ok{background:var(--green);box-shadow:0 0 0 4px #45dda515}.dot.fail{background:var(--red)}.dot.warn{background:var(--gold)}
 .stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:13px}.panel,.stat{background:var(--panel);border:1px solid var(--line);border-radius:17px;box-shadow:var(--shadow)}.stat{padding:18px 17px;min-height:112px}.caption{font-size:11px;letter-spacing:.3px;color:var(--muted);font-weight:650;text-transform:uppercase}.value{font-size:clamp(19px,2.3vw,28px);font-weight:820;letter-spacing:-.8px;margin-top:18px;white-space:nowrap}.positive{color:var(--green)!important}.negative{color:var(--red)!important}.muted{color:var(--muted)}.gold{color:var(--gold)}.small{font-size:11px}.notice{padding:12px 16px;border:1px solid #eeb85766;color:var(--gold);background:#d4a44312;border-radius:12px;margin-bottom:15px;font-size:12px}
-.main{display:grid;grid-template-columns:1fr;gap:15px;margin-top:16px}.side-stack{display:flex;flex-direction:column;gap:15px}.side-stack .graph{height:220px}.panel{padding:17px}.heading{font-weight:760;font-size:14px;display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;gap:8px}.sub{font-size:11px;color:var(--muted);font-weight:400}.graph{height:246px;width:100%;display:block}.graph text{fill:var(--muted);font-size:11px}.timeframe{display:flex;gap:5px}.timeframe button,.mode-switch button{background:var(--panel2);color:var(--muted);border:1px solid var(--line);font-size:11px;padding:6px 9px;border-radius:7px}.timeframe button.selected,.mode-switch button.selected{color:var(--text);border-color:var(--blue);background:color-mix(in srgb,var(--blue) 12%,var(--panel2))}.grid-market{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:9px;max-height:680px;overflow-y:auto;padding:2px 4px 3px 1px}.coin{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px;cursor:pointer;transition:border-color .18s,transform .15s}.coin:hover,.coin.active{border-color:var(--blue);transform:translateY(-1px)}.coin-top{display:flex;align-items:center;gap:10px}.coin img,.coin .fallback{width:31px;height:31px;flex:none;border-radius:50%}.coin img{object-fit:contain;background:transparent}.coin .fallback{display:grid;place-items:center;font-size:14px;letter-spacing:.1px;color:#182339;font-weight:900;border:1px solid #9d6a2866;background:linear-gradient(135deg,#ffe4a3,#dc9d49);box-shadow:inset 0 1px 2px #fff8,0 2px 7px #0002}.coin .fallback:nth-child(2){user-select:none}.coin-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.coin-top>div:nth-child(3){min-width:0}.coin-logo[hidden]{display:none}.coin .fallback[hidden]{display:none!important}.coin-name{font-weight:780;font-size:13px}.coin-tag{font-size:10px;color:var(--muted);margin-top:3px}.coin-price{margin-left:auto;text-align:right;font-weight:750;font-size:13px}.coin-change{font-size:10px;margin-top:3px;font-weight:760}.coin-score{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);margin-top:12px;padding-top:10px;gap:5px}.score{font-size:20px;font-weight:850}.mode-switch{display:flex;gap:3px}.mode-switch button{padding:5px 7px}.global-switch{display:flex;gap:2px;padding:3px;border:1px solid var(--line);background:var(--panel);border-radius:11px;align-items:center}.global-switch .global-label{color:var(--muted);font-size:11px;font-weight:700;padding:0 7px}.global-switch button{border:0;border-radius:8px;padding:8px 10px;background:transparent;color:var(--muted);font-size:12px;font-weight:750}.global-switch button.selected{background:var(--blue);color:#fff}.coin-error{font-size:10px;color:var(--red);margin-top:6px;word-break:break-word}.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.search{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:9px;padding:8px 11px;width:140px;max-width:100%;font-size:12px}.market-header{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:13px;flex-wrap:wrap}.market-header .heading{margin:0}.chartbox{min-height:400px;height:490px;background:var(--panel2);border-radius:12px;overflow:hidden;position:relative}.chartbox .waiting{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:12px}.chartbox iframe{border:0}.rows{margin-top:16px;display:grid;grid-template-columns:1.2fr 1fr;gap:15px}.tablewrap{width:100%;overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap}th{color:var(--muted);font-size:10px;font-weight:650;text-align:left;border-bottom:1px solid var(--line);padding:12px 8px}td{padding:12px 8px;border-bottom:1px solid var(--line)}tr:last-child td{border:0}tbody tr{cursor:pointer}tbody tr:hover{background:var(--panel2)}.empty{text-align:center;color:var(--muted);padding:28px;font-size:12px}.footer{font-size:11px;text-align:center;color:var(--muted);margin:26px 0}.tag{border-radius:6px;padding:3px 6px;background:var(--panel2);font-size:10px;font-weight:700}.modalbg{display:none;position:fixed;inset:0;background:#040918b9;z-index:100;justify-content:center;align-items:center;padding:16px}.modalbg.on{display:flex}.modal{border:1px solid var(--line);border-radius:16px;padding:24px;background:var(--panel);max-width:480px;max-height:90vh;overflow:auto;width:100%;box-shadow:0 40px 110px #0008}.modal h3{margin:0 0 18px}.modal.history-modal{max-width:min(96vw,1320px)}.history-modal .tablewrap table{min-width:1120px}.field{display:block;margin-bottom:14px;font-size:12px;color:var(--muted)}.field input{display:block;margin-top:7px;width:100%;color:var(--text);padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--panel2)}.formactions{display:flex;justify-content:flex-end;gap:7px}.details{display:grid;grid-template-columns:1fr 1fr;gap:15px 10px}.details .value{font-size:14px;margin-top:5px;white-space:normal}.statusline{font-size:11px;color:var(--muted);margin-top:7px}.sync{font-size:11px;color:var(--muted)}@media(max-width:1050px){.stats{grid-template-columns:repeat(3,1fr)}.main,.rows{grid-template-columns:1fr}.chartbox{height:410px}}@media(max-width:560px){.shell{padding:14px 10px 34px}.stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.stat{min-height:95px;padding:13px}.value{font-size:20px;margin-top:12px}.brandname{font-size:18px}.panel{padding:13px}.grid-market{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.coin{padding:9px}.coin img,.coin .fallback{width:25px;height:25px}.coin-price{font-size:11px}.coin-name{font-size:11px}.mode-switch button{font-size:10px;padding:5px}.chartbox{height:355px}.graph{height:220px}}
+.main{display:grid;grid-template-columns:1fr;gap:15px;margin-top:16px}.side-stack{display:flex;flex-direction:column;gap:15px}.side-stack .graph{height:220px}.panel{padding:17px}.heading{font-weight:760;font-size:14px;display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;gap:8px}.sub{font-size:11px;color:var(--muted);font-weight:400}.graph{height:246px;width:100%;display:block}.graph text{fill:var(--muted);font-size:11px}.timeframe{display:flex;gap:5px}.timeframe button,.mode-switch button{background:var(--panel2);color:var(--muted);border:1px solid var(--line);font-size:11px;padding:6px 9px;border-radius:7px}.timeframe button.selected,.mode-switch button.selected{color:var(--text);border-color:var(--blue);background:color-mix(in srgb,var(--blue) 12%,var(--panel2))}.grid-market{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:9px;max-height:680px;overflow-y:auto;padding:2px 4px 3px 1px}.coin{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px;cursor:pointer;transition:border-color .18s,transform .15s}.coin:hover,.coin.active{border-color:var(--blue);transform:translateY(-1px)}.coin-top{display:flex;align-items:center;gap:10px}.coin img,.coin .fallback{width:31px;height:31px;flex:none;border-radius:50%}.coin img{object-fit:contain;background:transparent}.coin .fallback{display:grid;place-items:center;font-size:14px;letter-spacing:.1px;color:#182339;font-weight:900;border:1px solid #9d6a2866;background:linear-gradient(135deg,#ffe4a3,#dc9d49);box-shadow:inset 0 1px 2px #fff8,0 2px 7px #0002}.coin .fallback:nth-child(2){user-select:none}.coin-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.coin-top>div:nth-child(3){min-width:0}.coin-logo[hidden]{display:none}.coin .fallback[hidden]{display:none!important}.coin-name{font-weight:780;font-size:13px}.coin-tag{font-size:10px;color:var(--muted);margin-top:3px}.coin-price{margin-left:auto;text-align:right;font-weight:750;font-size:13px}.coin-change{font-size:10px;margin-top:3px;font-weight:760}.coin-score{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);margin-top:12px;padding-top:10px;gap:5px}.score{font-size:20px;font-weight:850}.mode-switch{display:flex;gap:3px}.mode-switch button{padding:5px 7px}.global-switch{display:flex;gap:2px;padding:3px;border:1px solid var(--line);background:var(--panel);border-radius:11px;align-items:center}.global-switch .global-label{color:var(--muted);font-size:11px;font-weight:700;padding:0 7px}.global-switch button{border:0;border-radius:8px;padding:8px 10px;background:transparent;color:var(--muted);font-size:12px;font-weight:750}.global-switch button.selected{background:var(--blue);color:#fff}.coin-error{font-size:10px;color:var(--red);margin-top:6px;word-break:break-word}.equity-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:-4px 0 9px}.equity-range{display:flex;align-items:center;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:2px;gap:2px}.equity-range button{font-size:11px;font-weight:750;background:transparent;color:var(--muted);border:0;border-radius:7px;padding:6px 10px}.equity-range button.selected{background:var(--blue);color:#fff}.equity-range button:focus-visible{outline:2px solid var(--blue);outline-offset:1px}.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.search{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:9px;padding:8px 11px;width:140px;max-width:100%;font-size:12px}.market-header{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:13px;flex-wrap:wrap}.market-header .heading{margin:0}.chartbox{min-height:400px;height:490px;background:var(--panel2);border-radius:12px;overflow:hidden;position:relative}.chartbox .waiting{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:12px}.chartbox iframe{border:0}.rows{margin-top:16px;display:grid;grid-template-columns:1.2fr 1fr;gap:15px}.tablewrap{width:100%;overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap}th{color:var(--muted);font-size:10px;font-weight:650;text-align:left;border-bottom:1px solid var(--line);padding:12px 8px}td{padding:12px 8px;border-bottom:1px solid var(--line)}tr:last-child td{border:0}tbody tr{cursor:pointer}tbody tr:hover{background:var(--panel2)}.empty{text-align:center;color:var(--muted);padding:28px;font-size:12px}.footer{font-size:11px;text-align:center;color:var(--muted);margin:26px 0}.tag{border-radius:6px;padding:3px 6px;background:var(--panel2);font-size:10px;font-weight:700}.modalbg{display:none;position:fixed;inset:0;background:#040918b9;z-index:100;justify-content:center;align-items:center;padding:16px}.modalbg.on{display:flex}.modal{border:1px solid var(--line);border-radius:16px;padding:24px;background:var(--panel);max-width:480px;max-height:90vh;overflow:auto;width:100%;box-shadow:0 40px 110px #0008}.modal h3{margin:0 0 18px}.modal.history-modal{max-width:min(96vw,1320px)}.history-modal .tablewrap table{min-width:1120px}.field{display:block;margin-bottom:14px;font-size:12px;color:var(--muted)}.field input{display:block;margin-top:7px;width:100%;color:var(--text);padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--panel2)}.formactions{display:flex;justify-content:flex-end;gap:7px}.details{display:grid;grid-template-columns:1fr 1fr;gap:15px 10px}.details .value{font-size:14px;margin-top:5px;white-space:normal}.statusline{font-size:11px;color:var(--muted);margin-top:7px}.sync{font-size:11px;color:var(--muted)}@media(max-width:1050px){.stats{grid-template-columns:repeat(3,1fr)}.main,.rows{grid-template-columns:1fr}.chartbox{height:410px}}@media(max-width:560px){.shell{padding:14px 10px 34px}.stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.stat{min-height:95px;padding:13px}.value{font-size:20px;margin-top:12px}.brandname{font-size:18px}.panel{padding:13px}.grid-market{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.coin{padding:9px}.coin img,.coin .fallback{width:25px;height:25px}.coin-price{font-size:11px}.coin-name{font-size:11px}.mode-switch button{font-size:10px;padding:5px}.chartbox{height:355px}.graph{height:220px}}
 </style>
 </head>
 <body><div class="shell">
@@ -1634,7 +1645,7 @@ a{color:var(--blue)}.shell{max-width:1580px;margin:auto;padding:26px clamp(12px,
  <section class="panel"><div class="market-header"><div class="heading">Dynamic Coins <span class="sub" id="coin-count">0 pairs</span></div><div class="toolbar"><input class="search" id="coin-search" aria-label="Search coin" placeholder="Search coin…" oninput="renderCoins()"><span class="sync" id="market-status">UTC daily change</span></div></div><div id="coin-grid" class="grid-market"><div class="empty">Starting the scanner automatically. Coins will appear after market data loads.</div></div><div class="statusline">Stablecoin base pairs excluded. Score is a UI progress score; trading still requires the original sweep and ≥75 actual entry score.</div></section>
  <div class="side-stack">
  <section class="panel"><div class="heading">Open Paper Positions <span class="sub" id="max-positions">Risk managed · max —</span></div><div class="tablewrap"><table><thead><tr><th>Coin</th><th>Side</th><th>Mode</th><th>Entry</th><th>Stop</th><th>Capital Used</th><th>PnL</th><th>Action</th></tr></thead><tbody id="positions"><tr><td colspan="8" class="empty">No open positions</td></tr></tbody></table></div><div class="statusline" id="scanner-line">Scanner last successful scan: —</div></section>
- <section class="panel"><div class="heading">Wallet Performance <span class="sub">Trade-by-trade · After fees</span></div><svg class="graph" id="equity-chart" role="img" aria-label="Closed-trade equity curve" viewBox="0 0 780 250" preserveAspectRatio="none"></svg><div class="statusline">One point per closed trade. $1,000 stays at chart center; profits plot above, losses below. Unrealized PnL is separate.</div></section>
+ <section class="panel"><div class="heading">Wallet Performance <span class="sub">Closed-trade equity · After fees</span></div><div class="equity-toolbar"><div class="equity-range" role="group" aria-label="Equity chart history"><button type="button" data-equity-range="10" onclick="setEquityRange(10)">10</button><button type="button" class="selected" data-equity-range="30" onclick="setEquityRange(30)">30</button><button type="button" data-equity-range="50" onclick="setEquityRange(50)">50</button><button type="button" data-equity-range="all" onclick="setEquityRange('all')">All</button></div><span class="sub" id="equity-summary">Closed trades · Starting $1,000</span></div><svg class="graph" id="equity-chart" role="img" aria-label="Actual closed-trade wallet balance chart" viewBox="0 0 780 250" preserveAspectRatio="none"></svg><div class="statusline">Only actual closed-trade balances. Green = profitable close, red = losing close. Unrealized PnL excluded.</div></section>
  </div>
 </div>
 <section class="panel" style="margin-top:16px"><div class="heading">Last 10 Closed Trades <button class="btn" onclick="showHistory()">View Full History →</button></div><div class="tablewrap"><table><thead><tr><th>Coin</th><th>Direction</th><th>Strategy</th><th>Qty</th><th>Capital Used</th><th>Entry</th><th>Exit</th><th>Exit Reason</th><th>Fees</th><th>Net PnL</th><th>Net %</th><th>MFE</th><th>MAE</th><th>Duration</th><th>Closed (UTC)</th></tr></thead><tbody id="recent"><tr><td colspan="15" class="empty">No closed trades yet</td></tr></tbody></table></div></section>
@@ -1851,32 +1862,86 @@ function renderCoins(){
  }
  if(!geckoStarted)loadCoinGeckoLogos();
 }
-function renderEquity(points){
+// Values come only from persisted EquityPoint records, one for each closed trade
+// plus the true recorded $1,000 initialization point. No synthetic trade wiggles.
+let equityRange=30, equityRecent=[], equityAll=[], equityAllLoadedCount=-1;
+let equityTotalTrades=0, equityLoadingAll=false;
+function selectEquityPoints(source,range){
+ const count=(range==='all'?Math.max(0,source.length-1):range);
+ // Include the prior REAL closing balance as the first anchor for the window.
+ return source.slice(-Math.min(source.length,count+1));
+}
+function setEquityRange(range){
+ if(![10,30,50,'all'].includes(range))return;
+ equityRange=range;
+ document.querySelectorAll('[data-equity-range]').forEach(b=>b.classList.toggle('selected',String(range)===b.dataset.equityRange));
+ renderEquity();
+ if(range==='all'&&equityAllLoadedCount!==equityTotalTrades)fetchAllEquity();
+}
+async function fetchAllEquity(){
+ if(equityLoadingAll)return;
+ equityLoadingAll=true;
+ try{
+  const res=await fetch('/api/equity',{cache:'no-store'});
+  if(!res.ok)throw Error('HTTP '+res.status);
+  const data=await res.json();
+  if(!Array.isArray(data.points))throw Error('Equity history unavailable');
+  equityAll=data.points;
+  equityAllLoadedCount=Math.max(0,data.points.length-1);
+  if(equityRange==='all')renderEquity();
+ }catch(err){if(equityRange==='all')el('equity-summary').textContent='Unable to load full equity history · '+err.message}
+ finally{equityLoadingAll=false}
+}
+function updateEquityPoints(points,totalTrades){
+ equityRecent=Array.isArray(points)?points:[];
+ equityTotalTrades=totalTrades;
+ if(equityRange==='all'&&equityAllLoadedCount!==totalTrades)fetchAllEquity();
+ renderEquity();
+}
+function renderEquity(){
  const svg=el('equity-chart');svg.replaceChildren();
- if(!points?.length)points=[{balance:1000}];
- const values=points.map(p=>Number(p.balance)).filter(Number.isFinite);
- if(!values.length)values.push(1000);
- const baseline=1000, largest=Math.max(1,...values.map(v=>Math.abs(v-baseline)));
- // Symmetric scale: the $1,000 starting equity POINT is at chart center.
- // Draw no separate horizontal baseline or dotted grid: only the equity curve.
- const span=largest*1.15;
- const w=780,h=250,left=60,right=15,top=16,bottom=35,iw=w-left-right,ih=h-top-bottom,mid=top+ih/2;
- const sx=i=>left+(values.length===1?0:i/(values.length-1))*iw;
- const sy=v=>mid-(v-baseline)/span*(ih/2);
+ const source=equityRange==='all'&&equityAllLoadedCount===equityTotalTrades?equityAll:equityRecent;
+ const records=selectEquityPoints(source,equityRange);
+ const values=records.map(p=>Number(p.balance)).filter(Number.isFinite);
  const ns='http://www.w3.org/2000/svg';
- function s(tag,attrs){let x=document.createElementNS(ns,tag);for(let [k,v] of Object.entries(attrs))x.setAttribute(k,v);svg.appendChild(x);return x}
+ function add(tag,attrs,parent=svg){const node=document.createElementNS(ns,tag);Object.entries(attrs).forEach(([k,v])=>node.setAttribute(k,v));parent.appendChild(node);return node}
+ const w=780,h=250,left=63,right=13,top=13,bottom=30,iw=w-left-right,ih=h-top-bottom;
+ const starting=1000,center=top+ih/2;
+ const furthest=Math.max(1,...values.map(v=>Math.abs(v-starting)));
+ const span=furthest*1.18;
+ const sx=i=>left+(values.length<=1?0:i/(values.length-1))*iw;
+ const sy=v=>center-(v-starting)/span*(ih/2);
+ // Fine guide at initial balance; no thick baseline, fake movement or trade labels.
+ add('path',{d:'M'+left+' '+center+' L'+(w-right)+' '+center,stroke:'var(--muted)','stroke-width':'.55',opacity:'.23',fill:'none'});
  for(let i=-2;i<=2;i++){
-   const y=mid+i*ih/4;
-   const t=s('text',{x:left-8,y:y+4,'text-anchor':'end',fill:i===0?'var(--gold)':'var(--muted)'});
-   t.textContent='$'+fmt(baseline-i*span/2,span<10?2:0);
+  const val=starting-i*span/2, y=center+i*ih/4;
+  const txt=add('text',{x:left-9,y:y+4,'text-anchor':'end',fill:'var(--muted)',opacity:'.9'});
+  txt.textContent='$'+fmt(val,span<10?2:0);
  }
- const line=values.length===1?`M${left} ${mid} L${w-right} ${mid}`:
-    values.map((v,i)=>(i?'L':'M')+sx(i).toFixed(2)+' '+sy(v).toFixed(2)).join(' ');
- s('path',{d:line,fill:'none',stroke:'var(--blue)','stroke-width':3.3,
-   'stroke-linecap':'round','stroke-linejoin':'round'});
- s('circle',{cx:values.length===1?left:sx(values.length-1),cy:sy(values.at(-1)),r:4,fill:'var(--blue)'});
- let start=s('text',{x:left,y:h-8});start.textContent='Start';
- let end=s('text',{x:w-right,y:h-8,'text-anchor':'end'});end.textContent=(values.length-1)+' closed trades';
+ if(values.length===0){el('equity-summary').textContent='Waiting for recorded equity';return}
+ // Shape-preserving Hermite tangents: curves pass through each ACTUAL balance,
+ // without overshoot, invented peaks/troughs or extra value observations.
+ const xs=values.map((_,i)=>sx(i)),ys=values.map(v=>sy(v));
+ const slopes=ys.slice(1).map((y,i)=>(y-ys[i])/(xs[i+1]-xs[i]));
+ const tangents=ys.map((_,i)=>{
+  if(i===0)return slopes[0]||0;
+  if(i===ys.length-1)return slopes[slopes.length-1]||0;
+  const a=slopes[i-1],b=slopes[i];
+  return a*b<=0?0:(2*a*b/(a+b));
+ });
+ const bottomY=h-bottom;
+ for(let i=0;i<values.length-1;i++){
+  const x0=xs[i],x1=xs[i+1],y0=ys[i],y1=ys[i+1],dx=x1-x0;
+  const cmd='M'+x0+' '+y0+' C'+(x0+dx/3)+' '+(y0+tangents[i]*dx/3)+' '+(x1-dx/3)+' '+(y1-tangents[i+1]*dx/3)+' '+x1+' '+y1;
+  const color=values[i+1]>values[i]?'#35df9f':values[i+1]<values[i]?'#ff687a':'#91a5bd';
+  add('path',{d:cmd+' L'+x1+' '+bottomY+' L'+x0+' '+bottomY+' Z',fill:color,opacity:'.07'});
+  add('path',{d:cmd,fill:'none',stroke:color,'stroke-width':'7',opacity:'.10','stroke-linecap':'round'});
+  add('path',{d:cmd,fill:'none',stroke:color,'stroke-width':'4.25','stroke-linecap':'round','stroke-linejoin':'round'});
+ }
+ // A single small endpoint indicator is enough, including when no trades exist.
+ add('circle',{cx:xs[xs.length-1],cy:ys[ys.length-1],r:'3.1',fill:'var(--text)',stroke:'var(--panel)','stroke-width':'1.4'});
+ const count=Math.max(0,records.length-1);
+ el('equity-summary').textContent=count+' closed '+(count===1?'trade':'trades')+' · '+money(values[values.length-1]);
 }
 function rowOfTrade(t){
  let tr=document.createElement('tr');
@@ -1914,7 +1979,7 @@ async function load(){if(refreshing)return;refreshing=true;try{
  const st=d.scanner;const pill=el('scanner-pill');pill.innerHTML='<i class="dot '+(st.status==='RUNNING'?'ok':st.status==='OFFLINE'?'fail':'warn')+'"></i>'+escapeHTML('Scanner: '+st.status);pill.title=st.last_error||'';
  el('scanner-line').textContent='Last successful scan: '+timeUTC(st.last_success)+' UTC | Processed '+st.processed+' | Errors '+st.errors+(st.last_error?' | '+st.last_error:'');
  el('market-status').textContent='Prices: '+(d.market_stale?'STALE'+(d.quote_feed?.last_error?' · '+d.quote_feed.last_error.slice(0,110):''):'fresh')+' · 00:00 UTC base · 15m confirmed signals';
- renderCoins();renderEquity(d.equity_points);
+ renderCoins();updateEquityPoints(d.equity_points,(Number(d.wins)||0)+(Number(d.losses)||0)+(Number(d.flats)||0));
  const pbody=el('positions');pbody.replaceChildren();if(!d.open_positions.length)pbody.innerHTML='<tr><td colspan="8" class="empty">No open positions</td></tr>';
  d.open_positions.forEach(p=>{let tr=document.createElement('tr');tr.innerHTML='<td><b>'+escapeHTML(p.symbol)+'</b></td><td>'+p.side+'</td><td>'+p.mode+'</td><td>'+fmt(p.entry,p.entry<1?6:2)+'</td><td>'+fmt(p.stop,p.stop<1?6:2)+'</td><td>'+money(p.capital_used,2)+'</td><td class="'+cssSigned(p.pnl)+'">'+money(p.pnl,3)+'</td><td><button class="btn danger" type="button">Close Trade</button></td>';tr.querySelector('button').disabled=!ownerAuthenticated||pendingCloses.has(p.symbol);tr.querySelector('button').textContent=pendingCloses.has(p.symbol)?'Closing…':'Close Trade';tr.querySelector('button').onclick=()=>doManualClose(p.symbol);pbody.appendChild(tr)});
  const recent=el('recent');recent.replaceChildren();if(!d.recent.length)recent.innerHTML='<tr><td colspan="15" class="empty">No closed trades yet</td></tr>';

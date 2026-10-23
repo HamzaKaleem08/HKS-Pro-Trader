@@ -24,6 +24,8 @@ jobs:
         run: python -m py_compile app.py
       - name: Owner auth and reset regressions
         run: python -m unittest discover -s tests -v
+      - name: Equity chart real-data JavaScript checks
+        run: node tests/equity_curve.test.cjs
       - name: Dashboard JavaScript syntax
         run: |
           python - <<'PY'
