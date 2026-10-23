@@ -1,0 +1,39 @@
+name: HKS Owner Review Tests
+on:
+  pull_request:
+    paths:
+      - 'app.py'
+      - 'requirements.txt'
+      - 'tests/**'
+      - '.github/workflows/hks-owner-review.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  owner-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Python syntax
+        run: python -m py_compile app.py
+      - name: Owner auth and reset regressions
+        run: python -m unittest discover -s tests -v
+      - name: Dashboard JavaScript syntax
+        run: |
+          python - <<'PY'
+          import ast
+          import pathlib
+          import re
+          module = ast.parse(pathlib.Path("app.py").read_text())
+          html = next(ast.literal_eval(n.value) for n in module.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "DASHBOARD_HTML" for t in n.targets))
+          js = re.search(r"<script>(.*?)</script>", html, re.S).group(1)
+          js = js.replace("{{ reset_ready | tojson }}", "true")
+          pathlib.Path("/tmp/hks-ui-check.js").write_text(js)
+          PY
+          node --check /tmp/hks-ui-check.js
