@@ -95,5 +95,23 @@ class OwnerControlsTest(unittest.TestCase):
         self.assertEqual(post(client, "/api/mode/all", {"mode":"NORMAL","confirm":"ALL COINS"}).status_code, 401)
 
 
+    def test_equity_api_uses_only_persisted_actual_points(self):
+        client = hks.app.test_client()
+        with hks.Session.begin() as db:
+            db.execute(hks.delete(hks.EquityPoint))
+            db.add_all([
+                hks.EquityPoint(time_ms=101, balance=D("1000.0000")),
+                hks.EquityPoint(time_ms=202, balance=D("998.2500")),
+                hks.EquityPoint(time_ms=303, balance=D("1001.7500")),
+            ])
+        response = client.get("/api/equity", base_url="https://localhost")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([x["t"] for x in response.json["points"]], [101, 202, 303])
+        self.assertEqual([D(str(x["balance"])) for x in response.json["points"]],
+                         [D("1000"), D("998.25"), D("1001.75")])
+        # The endpoint cannot generate intermediate fake balances or wiggles.
+        self.assertEqual(len(response.json["points"]), 3)
+
+
 if __name__ == "__main__":
     unittest.main()
