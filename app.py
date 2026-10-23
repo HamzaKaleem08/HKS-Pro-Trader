@@ -7,7 +7,9 @@ kernel. Read README before connecting a persistent wallet / deploying.
 """
 from __future__ import annotations
 
+import hashlib
 import hmac
+import secrets
 import logging
 import os
 import re
@@ -164,6 +166,13 @@ class ResetGuard(Base):
     window_start_ms = Column(BigInteger, nullable=False, default=0)
     failed_attempts = Column(Integer, nullable=False, default=0)
     lock_until_ms = Column(BigInteger, nullable=False, default=0)
+
+
+class OwnerSession(Base):
+    """Revocable persistent owner login; only a SHA-256 token digest is stored."""
+    __tablename__ = "hks_owner_session"
+    token_hash = Column(String(64), primary_key=True)
+    created_ms = Column(BigInteger, nullable=False)
 
 
 class QuoteHealth(Base):
@@ -1162,6 +1171,76 @@ def safe_headers(resp):
     return resp
 
 
+
+# Owner session is deliberately independent of Reset 1K confirmation.
+# The same existing private password authenticates once, and stays server-side.
+OWNER_COOKIE = "hks_owner"
+OWNER_COOKIE_AGE = 400 * 24 * 60 * 60  # Rolling browser max-age; extended on site re-open.
+
+
+def owner_logged_in():
+    token = request.cookies.get(OWNER_COOKIE, "")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{40,128}", token):
+        return False
+    token_hash = hashlib.sha256(token.encode("ascii")).hexdigest()
+    with Session() as db:
+        return db.get(OwnerSession, token_hash) is not None
+
+
+def require_owner():
+    if not owner_logged_in():
+        return jsonify({"error": "Owner Login required. Please unlock the dashboard first."}), 401
+    return None
+
+
+def set_owner_cookie(response, token):
+    response.set_cookie(OWNER_COOKIE, token, max_age=OWNER_COOKIE_AGE,
+                        httponly=True, secure=(ON_VERCEL or request.is_secure),
+                        samesite="Strict", path="/")
+    return response
+
+
+@app.post("/api/owner/login")
+def owner_login():
+    same_origin_post()
+    if len(os.environ.get("HKS_RESET_PASSWORD", "")) < 6:
+        return jsonify({"error": "Owner password is not configured"}), 503
+    submitted = (request.get_json(silent=True) or {}).get("password", "")
+    allowed, error, code = check_reset_attempt(submitted)
+    if not allowed:
+        return jsonify({"error": error}), code
+    token = secrets.token_urlsafe(32)
+    digest = hashlib.sha256(token.encode("ascii")).hexdigest()
+    with Session.begin() as db:
+        db.add(OwnerSession(token_hash=digest, created_ms=utc_ms()))
+    return set_owner_cookie(jsonify({"ok": True, "owner": True}), token)
+
+
+@app.post("/api/owner/logout")
+def owner_logout():
+    same_origin_post()
+    token = request.cookies.get(OWNER_COOKIE, "")
+    if re.fullmatch(r"[A-Za-z0-9_-]{40,128}", token):
+        with Session.begin() as db:
+            record = db.get(OwnerSession, hashlib.sha256(token.encode("ascii")).hexdigest())
+            if record is not None:
+                db.delete(record)
+    response = jsonify({"ok": True, "owner": False})
+    response.delete_cookie(OWNER_COOKIE, path="/", secure=(ON_VERCEL or request.is_secure), samesite="Strict", httponly=True)
+    return response
+
+
+@app.get("/api/owner/status")
+def owner_status():
+    logged = owner_logged_in()
+    response = jsonify({"owner": logged})
+    # Rolling cookie persists across restarts and browser reopenings until Logout,
+    # subject to browser cookie expiry/clearing and owner-password rotation policy.
+    if logged:
+        set_owner_cookie(response, request.cookies[OWNER_COOKIE])
+    return response
+
+
 @app.get("/")
 def page():
     return render_template_string(DASHBOARD_HTML, reset_ready=len(os.environ.get("HKS_RESET_PASSWORD", "")) >= 6,
@@ -1176,6 +1255,9 @@ def set_global_mode():
     symbols inherit the saved default until a coin-specific override is chosen.
     """
     same_origin_post()
+    denial = require_owner()
+    if denial is not None:
+        return denial
     obj = request.get_json(silent=True) or {}
     mode = str(obj.get("mode", "")).upper()
     if mode not in {"NORMAL", "REVERSE"}:
@@ -1200,6 +1282,9 @@ def set_global_mode():
 @app.post("/api/mode/<symbol>")
 def set_mode(symbol):
     same_origin_post()
+    denial = require_owner()
+    if denial is not None:
+        return denial
     if not SYMBOL_RE.fullmatch(symbol):
         abort(400)
     mode = str((request.get_json(silent=True) or {}).get("mode", "")).upper()
@@ -1216,6 +1301,9 @@ def set_mode(symbol):
 @app.post("/api/reset")
 def reset_wallet():
     same_origin_post()
+    denial = require_owner()
+    if denial is not None:
+        return denial
     if len(os.environ.get("HKS_RESET_PASSWORD", "")) < 6:
         return jsonify({"error": "Reset disabled until HKS_RESET_PASSWORD is set privately in Replit Secrets"}), 503
     obj = request.get_json(silent=True) or {}
@@ -1237,30 +1325,14 @@ def reset_wallet():
             db.execute(delete(EquityPoint))
             db.execute(delete(ClosedTrade))
             db.execute(delete(Position))
-            db.execute(delete(Coin))
-            # Reset 1K means a clean paper account, including global mode.
-            db.get(GlobalMode, 1).mode = "NORMAL"
+            # Account reset must NOT erase market score, candle/SMC state,
+            # dynamic coin selection, scanner health, or user-selected modes.
+            # Only obsolete position indicators need clearing after positions vanish.
+            db.query(Coin).filter(
+                (Coin.signal.like("OPEN%")) | (Coin.signal == "TRAILING")
+            ).update({Coin.signal: "WAIT"}, synchronize_session=False)
             db.get(Wallet, 1).cash = START_BALANCE
             db.add(EquityPoint(time_ms=utc_ms(), balance=START_BALANCE))
-            st = db.get(BotState, 1)
-            st.last_attempt_ms = None
-            st.last_success_ms = None
-            st.last_error = None
-            st.last_error_count = 0
-            st.last_symbol_count = 0
-            st.market_symbols = ""
-            st.last_market_refresh_ms = None
-            # Clear diagnostic-only cron history on a user-authorized Reset 1K.
-            # This does NOT alter trade accounting or scanner execution logic.
-            cron_health = db.get(CronHealth, 1)
-            if cron_health:
-                cron_health.last_request_ms = None
-                cron_health.last_finish_ms = None
-                cron_health.last_scan_status = "NOT STARTED"
-                cron_health.last_scan_count = 0
-                cron_health.last_scan_error_count = 0
-                cron_health.last_duration_ms = None
-                cron_health.last_error = None
         LOG.warning("Owner manually reset complete paper account to $1000")
         return jsonify({"ok": True})
     finally:
@@ -1277,16 +1349,11 @@ def manual_close_position(symbol):
     Binance orders are placed. The scanner-wide lock serializes close/scan.
     """
     same_origin_post()
+    denial = require_owner()
+    if denial is not None:
+        return denial
     if not SYMBOL_RE.fullmatch(symbol):
         abort(400)
-    if len(os.environ.get("HKS_RESET_PASSWORD", "")) < 6:
-        return jsonify({"error": "Manual close disabled until private owner password is configured"}), 503
-    obj = request.get_json(silent=True) or {}
-    if obj.get("confirm") != f"CLOSE {symbol}":
-        return jsonify({"error": f"Confirm with CLOSE {symbol}"}), 400
-    allowed, error, http_status = check_reset_attempt(obj.get("password", ""))
-    if not allowed:
-        return jsonify({"error": error}), http_status
     if not _runner_mutex.acquire(blocking=False):
         return jsonify({"error": "Scanner busy; retry after current scan"}), 409
     pg_lock = None
@@ -1429,7 +1496,7 @@ def state():
                               "mae_pct": fmt(p.mae_frac * 100, 2)})
         realized = START_BALANCE + (db.scalar(select(func.coalesce(func.sum(ClosedTrade.net_pnl), 0))) or ZERO)
         saved_global = db.get(GlobalMode, 1)
-        return jsonify({"now": now, "global_mode": saved_global.mode if saved_global else "NORMAL", "market_stale": stale,
+        return jsonify({"now": now, "global_mode": saved_global.mode if saved_global else "NORMAL", "max_positions": MAX_POSITIONS, "market_stale": stale,
                         "quotes_age_s": round(quote_age_s, 1) if quote_age_s is not None else None,
                         "quote_target_s": 2, "strategy_timeframe": "15m",
                         "quote_feed": {"source": feed.source if feed else None,
@@ -1548,7 +1615,7 @@ a{color:var(--blue)}.shell{max-width:1580px;margin:auto;padding:26px clamp(12px,
 </style>
 </head>
 <body><div class="shell">
-<header class="top"><div class="brand"><div class="brandmark"><img src="/static/hks-modern-chart.svg" width="48" height="48" alt="HKS Modern Chart logo"></div><div><div class="brandname">HKS <span class="gold">Pro Trader</span></div><div class="brandline">LIGHTWEIGHT PAPER ENGINE</div></div></div><div class="actions"><span class="pill" id="scanner-pill"><i class="dot"></i><span>Scanner: Checking…</span></span><div class="global-switch" role="group" aria-label="Global strategy mode"><span class="global-label">ALL COINS</span><button type="button" id="global-normal" class="selected" onclick="changeGlobalMode('NORMAL')">Normal</button><button type="button" id="global-reverse" onclick="changeGlobalMode('REVERSE')">Reverse</button></div><button class="btn" id="theme-btn" onclick="toggleTheme()">☼ Light Mode</button><button class="btn" onclick="showHistory()">Trade History</button><button class="btn primary" onclick="openTools()">Tools / Reset 1K</button></div></header>
+<header class="top"><div class="brand"><div class="brandmark"><img src="/static/hks-modern-chart.svg" width="48" height="48" alt="HKS Modern Chart logo"></div><div><div class="brandname">HKS <span class="gold">Pro Trader</span></div><div class="brandline">LIGHTWEIGHT PAPER ENGINE</div></div></div><div class="actions"><button class="btn" id="owner-button" onclick="toggleOwner()">Owner Login</button><span class="pill" id="scanner-pill"><i class="dot"></i><span>Scanner: Checking…</span></span><div class="global-switch" role="group" aria-label="Global strategy mode"><span class="global-label">ALL COINS</span><button type="button" id="global-normal" class="selected" onclick="changeGlobalMode('NORMAL')">Normal</button><button type="button" id="global-reverse" onclick="changeGlobalMode('REVERSE')">Reverse</button></div><button class="btn" id="theme-btn" onclick="toggleTheme()">☼ Light Mode</button><button class="btn" onclick="showHistory()">Trade History</button><button class="btn primary" onclick="openTools()">Tools / Reset 1K</button></div></header>
 {% if sqlite_mode %}<div class="notice">⚠ Running on local SQLite. For Replit Autoscale, configure a persistent PostgreSQL DATABASE_URL before relying on saved trades, wallet or modes.</div>{% endif %}
 {% if not reset_ready %}<div class="notice">⚠ Reset 1K is disabled until HKS_RESET_PASSWORD is stored privately in Replit Secrets.</div>{% endif %}
 <div class="statusline" style="margin:-12px 0 14px">Global Normal/Reverse applies to all new entries. Per-coin custom mode remains available; changing Global mode resets those custom choices. Open positions keep their original direction.</div>
@@ -1564,9 +1631,9 @@ a{color:var(--blue)}.shell{max-width:1580px;margin:auto;padding:26px clamp(12px,
  <section class="panel"><div class="heading">TradingView Chart <span><span class="sub" id="selected-symbol">BTCUSDT</span> · <a class="sub" id="chart-external" href="https://www.tradingview.com/chart/?symbol=BITGET%3ABTCUSDT.P" target="_blank" rel="noopener noreferrer">Open on TradingView ↗</a></span></div><div class="timeframe" style="margin-bottom:12px"><button onclick="selectTF('1')" data-tf="1">1m</button><button onclick="selectTF('15')" class="selected" data-tf="15">15m</button><button onclick="selectTF('60')" data-tf="60">1h</button><button onclick="selectTF('D')" data-tf="D">1D</button></div><div class="chartbox" id="chart"><div class="waiting">Loading TradingView chart…</div></div><div class="statusline">Timeframe buttons affect chart display only. Strategy decisions remain on completed 15m candles.</div></section>
 </div>
 <div class="rows">
- <section class="panel"><div class="market-header"><div class="heading">Top 50 Dynamic Coins <span class="sub" id="coin-count">0 pairs</span></div><div class="toolbar"><input class="search" id="coin-search" aria-label="Search coin" placeholder="Search coin…" oninput="renderCoins()"><span class="sync" id="market-status">UTC daily change</span></div></div><div id="coin-grid" class="grid-market"><div class="empty">Starting the scanner automatically. Coins will appear after market data loads.</div></div><div class="statusline">Stablecoin base pairs excluded. Score is a UI progress score; trading still requires the original sweep and ≥75 actual entry score.</div></section>
+ <section class="panel"><div class="market-header"><div class="heading">Dynamic Coins <span class="sub" id="coin-count">0 pairs</span></div><div class="toolbar"><input class="search" id="coin-search" aria-label="Search coin" placeholder="Search coin…" oninput="renderCoins()"><span class="sync" id="market-status">UTC daily change</span></div></div><div id="coin-grid" class="grid-market"><div class="empty">Starting the scanner automatically. Coins will appear after market data loads.</div></div><div class="statusline">Stablecoin base pairs excluded. Score is a UI progress score; trading still requires the original sweep and ≥75 actual entry score.</div></section>
  <div class="side-stack">
- <section class="panel"><div class="heading">Open Paper Positions <span class="sub">Risk managed · max 3</span></div><div class="tablewrap"><table><thead><tr><th>Coin</th><th>Side</th><th>Mode</th><th>Entry</th><th>Stop</th><th>Capital Used</th><th>PnL</th><th>Action</th></tr></thead><tbody id="positions"><tr><td colspan="8" class="empty">No open positions</td></tr></tbody></table></div><div class="statusline" id="scanner-line">Scanner last successful scan: —</div></section>
+ <section class="panel"><div class="heading">Open Paper Positions <span class="sub" id="max-positions">Risk managed · max —</span></div><div class="tablewrap"><table><thead><tr><th>Coin</th><th>Side</th><th>Mode</th><th>Entry</th><th>Stop</th><th>Capital Used</th><th>PnL</th><th>Action</th></tr></thead><tbody id="positions"><tr><td colspan="8" class="empty">No open positions</td></tr></tbody></table></div><div class="statusline" id="scanner-line">Scanner last successful scan: —</div></section>
  <section class="panel"><div class="heading">Wallet Performance <span class="sub">Trade-by-trade · After fees</span></div><svg class="graph" id="equity-chart" role="img" aria-label="Closed-trade equity curve" viewBox="0 0 780 250" preserveAspectRatio="none"></svg><div class="statusline">One point per closed trade. $1,000 stays at chart center; profits plot above, losses below. Unrealized PnL is separate.</div></section>
  </div>
 </div>
@@ -1576,6 +1643,8 @@ a{color:var(--blue)}.shell{max-width:1580px;margin:auto;padding:26px clamp(12px,
 <div class="modalbg" id="modal" onclick="if(event.target===this)hideModal()"><div class="modal"><h3 id="modal-title">Details</h3><div id="modal-content"></div><div class="formactions" style="margin-top:18px"><button class="btn" onclick="hideModal()">Close</button></div></div></div>
 <script>
 const resetReady={{ reset_ready | tojson }};
+let ownerAuthenticated=false;
+const pendingCloses=new Set();
 let coinData=[], selected='BTCUSDT', timeframe='15', tradeIndex={}, selectedHistory=[], globalMode='NORMAL';
 const fmt=(n,p=2)=>n==null?'—':Number(n).toLocaleString('en-US',{minimumFractionDigits:p,maximumFractionDigits:p});
 const money=(v,p=2)=>v==null?'—':(v<0?'−':'')+'$'+fmt(Math.abs(v),p);
@@ -1587,39 +1656,68 @@ function setThemeLabel(){el('theme-btn').textContent=document.body.classList.con
 function initTheme(){document.body.classList.toggle('light',localStorage.getItem('hks-theme')==='light');setThemeLabel()}
 function toggleTheme(){let light=document.body.classList.toggle('light');localStorage.setItem('hks-theme',light?'light':'dark');setThemeLabel();renderChart()}
 initTheme();
+refreshOwnerStatus();
 function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function showModal(title,html){el('modal').querySelector('.modal').classList.remove('history-modal');el('modal-title').textContent=title;el('modal-content').innerHTML=html;el('modal').classList.add('on')}
 function hideModal(){el('modal').classList.remove('on')}
 function notify(s){showModal('HKS Notice','<p>'+escapeHTML(s)+'</p>')}
 async function post(url,body){let r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});let j=await r.json().catch(()=>({error:'Unexpected server response'}));if(!r.ok)throw Error(j.error||('HTTP '+r.status));return j}
 function openTools(){
- showModal('HKS Tools','<p class="small muted">Mode changes affect NEW trades only. Existing open positions keep their opening mode. The scanner starts on website visit; external Cron GET /wake performs a direct completed-candle scan even if no browser is open. /api/cron remains token-protected.</p><p class="small negative">Reset 1K permanently deletes ALL paper trades, positions, equity history, scores and saved Normal/Reverse settings.</p><label class="field">Reset password<input type="password" id="reset-pass" autocomplete="off"></label><label class="field">Type RESET 1K<input id="reset-confirm" placeholder="RESET 1K"></label><button class="btn danger" onclick="doReset()" '+(resetReady?'':'disabled')+'>Reset 1K</button>');
-}
-function openManualClose(symbol){
- if(!/^[A-Z0-9]+USDT$/.test(symbol))return;
- showModal('Close Paper Position — '+symbol,
-  '<p class="small muted">This closes only the existing PAPER position using a fresh exchange quote (simulated price/fees). The market may move before the server processes your request.</p>'+ 
-  '<label class="field">Owner password (same as Reset 1K)<input type="password" id="close-pass" autocomplete="off"></label>'+ 
-  '<label class="field">Type CLOSE '+escapeHTML(symbol)+'<input id="close-confirm" autocomplete="off" placeholder="CLOSE '+escapeHTML(symbol)+'"></label>'+ 
-  '<button class="btn danger" id="close-execute" onclick="doManualClose(\''+symbol+'\')">Confirm Manual Close</button>');
+ if(!ownerAuthenticated){notify('Owner Login required to reset the paper account.');return}
+ showModal('HKS Tools','<p class="small muted">Mode changes affect NEW trades only. Existing open positions keep their opening mode. The scanner starts on website visit; external Cron GET /wake performs a direct completed-candle scan even if no browser is open. /api/cron remains token-protected.</p><p class="small negative">Reset 1K deletes paper positions, trade history and wallet performance only. Market scores, SMC/candle analysis and coin modes are preserved.</p><label class="field">Reset password<input type="password" id="reset-pass" autocomplete="off"></label><label class="field">Type RESET 1K<input id="reset-confirm" placeholder="RESET 1K"></label><button class="btn danger" onclick="doReset()" '+(resetReady?'':'disabled')+'>Reset 1K</button>');
 }
 async function doManualClose(symbol){
- const button=el('close-execute');if(button.disabled)return;
- const password=el('close-pass').value,confirm=el('close-confirm').value;
- button.disabled=true;
+ if(!ownerAuthenticated){notify('Owner Login required.');return}
+ if(!/^[A-Z0-9]+USDT$/.test(symbol)||pendingCloses.has(symbol))return;
+ pendingCloses.add(symbol);
  try{
-   const r=await post('/api/position/'+symbol+'/close',{password,confirm});
-   hideModal();await load();
-   notify(symbol+' manually closed at '+money(r.exit_price,6)+' · Net '+money(r.net_pnl,4));
- }catch(e){button.disabled=false;notify(e.message)}
+  // One-click: request starts immediately. No modal or password per trade.
+  const result=await post('/api/position/'+symbol+'/close',{});
+  await load();
+  notify(symbol+' manually closed at '+money(result.exit_price,6)+' · Net '+money(result.net_pnl,4));
+ }catch(e){notify(e.message)}
+ finally{pendingCloses.delete(symbol)}
+}
+function updateOwnerUI(){
+ const button=el('owner-button');
+ button.textContent=ownerAuthenticated?'Owner · Logout':'Owner Login';
+ document.querySelectorAll('.global-switch button').forEach(x=>x.disabled=!ownerAuthenticated);
+ document.querySelectorAll('.mode-switch button').forEach(x=>x.disabled=!ownerAuthenticated);
+ document.querySelectorAll('#positions button').forEach(x=>x.disabled=!ownerAuthenticated);
+}
+async function refreshOwnerStatus(){
+ try{const r=await fetch('/api/owner/status',{cache:'no-store'});ownerAuthenticated=r.ok&&Boolean((await r.json()).owner)}
+ catch(_){ownerAuthenticated=false}
+ updateOwnerUI();renderCoins();
+}
+function toggleOwner(){
+ if(!ownerAuthenticated){
+  showModal('Owner Login','<p class="small muted">Login once to unlock One-Click Close and trade-mode controls. Reset 1K still needs its own password.</p><label class="field">Owner password<input type="password" id="owner-pass" autocomplete="current-password"></label><button class="btn primary" id="owner-login-action" onclick="doOwnerLogin()">Unlock Dashboard</button>');
+ }else{
+  showModal('Owner Logout','<p class="small muted">Lock owner controls on this browser? Market scanning continues normally.</p><button class="btn danger" onclick="doOwnerLogout()">Logout & Lock</button>');
+ }
+}
+async function doOwnerLogin(){
+ const b=el('owner-login-action');if(b.disabled)return;b.disabled=true;
+ try{
+  await post('/api/owner/login',{password:el('owner-pass').value});
+  ownerAuthenticated=true;hideModal();updateOwnerUI();renderCoins();await load();
+ }catch(e){b.disabled=false;notify(e.message)}
+}
+async function doOwnerLogout(){
+ try{
+  await post('/api/owner/logout',{});
+  ownerAuthenticated=false;hideModal();updateOwnerUI();renderCoins();await load();
+ }catch(e){notify(e.message)}
 }
 async function doReset(){try{let p=el('reset-pass').value,confirm=el('reset-confirm').value;if(!window.confirm('Delete ALL paper account data and reset exactly to $1,000?'))return;await post('/api/reset',{password:p,confirm});hideModal();await load()}catch(e){notify(e.message)}}
-async function changeMode(symbol,mode,evt){evt.stopPropagation();try{await post('/api/mode/'+symbol,{mode});const c=coinData.find(c=>c.symbol===symbol);if(c)c.mode=mode;renderCoins()}catch(e){notify(e.message)}}
+async function changeMode(symbol,mode,evt){evt.stopPropagation();if(!ownerAuthenticated){notify('Owner Login required.');return}try{await post('/api/mode/'+symbol,{mode});const c=coinData.find(c=>c.symbol===symbol);if(c)c.mode=mode;renderCoins()}catch(e){notify(e.message)}}
 function renderGlobalMode(){
  el('global-normal').classList.toggle('selected',globalMode==='NORMAL');
  el('global-reverse').classList.toggle('selected',globalMode==='REVERSE');
 }
 async function changeGlobalMode(mode){
+ if(!ownerAuthenticated){notify('Owner Login required.');return}
  if(!['NORMAL','REVERSE'].includes(mode))return;
  if(!window.confirm('Set ALL coins to '+mode+'? This clears custom coin modes for future entries. Open trades remain unchanged.'))return;
  try{
@@ -1680,7 +1778,8 @@ function updateLogo(card,symbol){
  if(!img||!fallback)return;
  const key=logoBase(symbol).toLowerCase();
  const sources=[logoUrls.get(key),
-   'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@0.18.1/128/color/'+encodeURIComponent(key)+'.png'
+   'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@0.18.1/128/color/'+encodeURIComponent(key)+'.png',
+   'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@0.18.1/svg/color/'+encodeURIComponent(key)+'.svg'
  ].filter(Boolean);
  // Preload via a separate eager Image() independent of the hidden UI element.
  // Requests only happen on card creation / icon mapping update, not every 2s.
@@ -1708,12 +1807,12 @@ function updateLogo(card,symbol){
 async function loadCoinGeckoLogos(){
  if(geckoStarted)return;geckoStarted=true;
  try{
-  const pages=[{order:'market_cap_desc',page:1},{order:'market_cap_desc',page:2},{order:'market_cap_desc',page:3},{order:'volume_desc',page:1}];
+  const pages=[{order:'market_cap_desc',page:1},{order:'market_cap_desc',page:2},{order:'market_cap_desc',page:3},{order:'volume_desc',page:1},{order:'volume_desc',page:2},{order:'volume_desc',page:3}];
   for(const p of pages){
    const url='https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order='+p.order+'&per_page=250&page='+p.page+'&sparkline=false';
    const ctl=new AbortController();const timeout=setTimeout(()=>ctl.abort(),6500);
    let response;try{response=await fetch(url,{signal:ctl.signal})}finally{clearTimeout(timeout)}
-   if(!response.ok)break;
+   if(!response.ok)continue;
    const rows=await response.json();if(!Array.isArray(rows))break;
    for(const x of rows){if(typeof x.symbol==='string'&&typeof x.image==='string'&&/^https:\/\//.test(x.image)){
     const k=x.symbol.toLowerCase();if(!logoUrls.has(k))logoUrls.set(k,x.image);
@@ -1743,7 +1842,7 @@ function renderCoins(){
   card.querySelector('.price-text').textContent=c.price==null?'—':'$'+fmt(c.price,c.price<1?6:2);
   const change=card.querySelector('.coin-change');change.className='coin-change '+cssSigned(c.change);change.textContent=c.change==null?'—':(c.change>0?'+':'')+fmt(c.change,2)+'%';
   card.querySelector('.score').textContent=c.score;
-  card.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('selected',b.dataset.mode===c.mode));
+  card.querySelectorAll('[data-mode]').forEach(b=>{b.classList.toggle('selected',b.dataset.mode===c.mode);b.disabled=!ownerAuthenticated});
   const err=card.querySelector('.coin-error');err.hidden=!c.error;err.textContent=c.error||'';
   // Keep the DOM node in place when position is unchanged; no logo flicker.
   const at=grid.children[cardIndex];
@@ -1809,6 +1908,7 @@ async function showHistory(){
 let refreshing=false;
 async function load(){if(refreshing)return;refreshing=true;try{
  let r=await fetch('/api/state',{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);let d=await r.json();coinData=d.coins;globalMode=d.global_mode||'NORMAL';renderGlobalMode();
+ el('max-positions').textContent='Risk managed · max '+d.max_positions;
  el('balance').textContent=money(d.balance);el('unreal').textContent=money(d.unrealized);el('unreal').className='value '+cssSigned(d.unrealized);
  el('wins').textContent=d.wins;el('losses').textContent=d.losses;el('winrate').textContent=fmt(d.wins*100/Math.max(d.wins+d.losses,1),1)+'%';el('open-count').textContent=d.open_positions.length+' open position(s)';el('coin-count').textContent=d.coin_count+' pairs';
  const st=d.scanner;const pill=el('scanner-pill');pill.innerHTML='<i class="dot '+(st.status==='RUNNING'?'ok':st.status==='OFFLINE'?'fail':'warn')+'"></i>'+escapeHTML('Scanner: '+st.status);pill.title=st.last_error||'';
@@ -1816,7 +1916,7 @@ async function load(){if(refreshing)return;refreshing=true;try{
  el('market-status').textContent='Prices: '+(d.market_stale?'STALE'+(d.quote_feed?.last_error?' · '+d.quote_feed.last_error.slice(0,110):''):'fresh')+' · 00:00 UTC base · 15m confirmed signals';
  renderCoins();renderEquity(d.equity_points);
  const pbody=el('positions');pbody.replaceChildren();if(!d.open_positions.length)pbody.innerHTML='<tr><td colspan="8" class="empty">No open positions</td></tr>';
- d.open_positions.forEach(p=>{let tr=document.createElement('tr');tr.innerHTML='<td><b>'+escapeHTML(p.symbol)+'</b></td><td>'+p.side+'</td><td>'+p.mode+'</td><td>'+fmt(p.entry,p.entry<1?6:2)+'</td><td>'+fmt(p.stop,p.stop<1?6:2)+'</td><td>'+money(p.capital_used,2)+'</td><td class="'+cssSigned(p.pnl)+'">'+money(p.pnl,3)+'</td><td><button class="btn danger" type="button">Close Trade</button></td>';tr.querySelector('button').onclick=()=>openManualClose(p.symbol);pbody.appendChild(tr)});
+ d.open_positions.forEach(p=>{let tr=document.createElement('tr');tr.innerHTML='<td><b>'+escapeHTML(p.symbol)+'</b></td><td>'+p.side+'</td><td>'+p.mode+'</td><td>'+fmt(p.entry,p.entry<1?6:2)+'</td><td>'+fmt(p.stop,p.stop<1?6:2)+'</td><td>'+money(p.capital_used,2)+'</td><td class="'+cssSigned(p.pnl)+'">'+money(p.pnl,3)+'</td><td><button class="btn danger" type="button">Close Trade</button></td>';tr.querySelector('button').disabled=!ownerAuthenticated||pendingCloses.has(p.symbol);tr.querySelector('button').textContent=pendingCloses.has(p.symbol)?'Closing…':'Close Trade';tr.querySelector('button').onclick=()=>doManualClose(p.symbol);pbody.appendChild(tr)});
  const recent=el('recent');recent.replaceChildren();if(!d.recent.length)recent.innerHTML='<tr><td colspan="15" class="empty">No closed trades yet</td></tr>';
  d.recent.forEach(t=>recent.appendChild(rowOfTrade(t)));
  }catch(e){el('scanner-pill').innerHTML='<i class="dot fail"></i>Dashboard offline';el('scanner-line').textContent='Dashboard request failed: '+e.message}finally{refreshing=false}}
