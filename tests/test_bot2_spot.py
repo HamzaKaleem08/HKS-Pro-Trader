@@ -133,30 +133,41 @@ class Bot2Regression(unittest.TestCase):
             self.assertEqual(db.scalar(select(hks.Position)), None)
 
     def test_05_public_cron_no_header_keeps_owner_routes_private(self):
-        with hks.app.test_client() as client:
-            with mock.patch.object(b2, "PAPER_ENABLED", False):
-                for route in ("/bot2/wake", "/api/bot2/cron"):
-                    disabled = client.get(route)
-                    self.assertEqual(disabled.status_code, 503)
-                    self.assertEqual(disabled.json["status"], "disabled")
-            # A public GET with no headers starts exactly 1 scanner pass.
-            with mock.patch.object(b2, "PAPER_ENABLED", True):
-                with mock.patch.dict(os.environ, {"HKS_CRON_TOKEN": "test-only-valid-secret-01234567890123456789"}):
-                    scanner = mock.Mock(return_value={"status": "ok", "processed": 2, "errors": {}})
-                    with mock.patch.dict(self.bot, {"scan_once": scanner}):
-                        pass  # Registered closure calls scan_once directly.
-                    with mock.patch.object(hks.app.view_functions["bot2_cron"], "__wrapped__", create=True):
-                        pass
-                    # Replace closure cell's scanner using real route's globals?
-                    # Instead patch exchange calls and health state for a safe pass.
-                    with mock.patch.object(b2, "_scan_one", create=True):
-                        result = client.get("/bot2/wake")
-                    self.assertIn(result.status_code, (200, 202, 503))
-                    self.assertNotEqual(result.status_code, 403)
-            # Bot 1 private cron remains locked.
-            self.assertEqual(client.get("/api/cron").status_code, 403)
-            # Manual paper close remains owner protected.
-            self.assertEqual(client.post("/api/bot2/position/TNKUSDT/close", json={}).status_code, 401)
+        # Replace exactly the scanner captured by the Flask view's closure:
+        # no exchange calls and no database writes from this route test.
+        view = hks.app.view_functions["bot2_cron"]
+        freevars = dict(zip(view.__code__.co_freevars, view.__closure__))
+        cell = freevars["scan_once"]
+        original_scan = cell.cell_contents
+        stub = mock.Mock(return_value={"status": "ok", "processed": 2, "errors": {}})
+        try:
+            cell.cell_contents = stub
+            with hks.app.test_client() as client:
+                with mock.patch.object(b2, "PAPER_ENABLED", False):
+                    for route in ("/bot2/wake", "/api/bot2/cron"):
+                        r = client.get(route)
+                        self.assertEqual(r.status_code, 503)
+                        self.assertEqual(r.json["status"], "disabled")
+                    stub.assert_not_called()
+                with mock.patch.object(b2, "PAPER_ENABLED", True):
+                    # Both direct URLs accept a bare GET (no secret/header).
+                    for route in ("/bot2/wake", "/api/bot2/cron"):
+                        r = client.get(route)
+                        self.assertEqual(r.status_code, 200)
+                        self.assertEqual(r.json["scan_status"], "ok")
+                        self.assertEqual(r.json["scanned"], 2)
+                    self.assertEqual(stub.call_count, 2)
+                    for status in ("busy", "skipped"):
+                        stub.return_value = {"status": status}
+                        self.assertEqual(client.get("/bot2/wake").status_code, 202)
+                    stub.return_value = {"status": "error", "reason": "fake test"}
+                    self.assertEqual(client.get("/bot2/wake").status_code, 503)
+                # Bot 1 secret control and all owner actions remain protected.
+                self.assertEqual(client.get("/api/cron").status_code, 403)
+                self.assertEqual(client.post("/api/bot2/position/TNKUSDT/close",
+                                headers={"Origin": "http://localhost"}, json={}).status_code, 401)
+        finally:
+            cell.cell_contents = original_scan
         import inspect
         source = inspect.getsource(b2)
         self.assertNotIn("/api/v3/order", source)
