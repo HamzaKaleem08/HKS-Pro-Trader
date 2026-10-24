@@ -156,7 +156,32 @@ class Bot2Regression(unittest.TestCase):
         with self.assertRaises(ValueError):
             b2._bars("BTCUSDT", "1m", 100, 300000)
 
-    def test_07_book_notional_and_spread(self):
+    def test_07_manual_close_requires_owner_and_uses_real_public_book(self):
+        self._open("TNKUSDT")
+        with hks.app.test_client() as client:
+            unauthenticated = client.post("/api/bot2/position/TNKUSDT/close",
+                                           headers={"Origin": "http://localhost"},
+                                           json={})
+            self.assertEqual(unauthenticated.status_code, 401)
+            with hks.Session() as db:
+                self.assertIsNotNone(db.get(self.bot["models"]["position"], "TNKUSDT"))
+            with mock.patch.object(hks, "owner_logged_in", return_value=True):
+                with mock.patch.object(b2, "_book", return_value=(
+                    [(D("0.0996"), D("5000"))], [(D("0.1000"), D("5000"))])):
+                    response = client.post("/api/bot2/position/TNKUSDT/close",
+                                           headers={"Origin": "http://localhost"},
+                                           json={})
+                    self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+                    self.assertTrue(response.json["ok"])
+        with hks.Session() as db:
+            self.assertIsNone(db.get(self.bot["models"]["position"], "TNKUSDT"))
+            trade = db.scalar(select(self.bot["models"]["trade"]))
+            self.assertEqual(trade.exit_reason, "MANUAL PAPER CLOSE")
+            self.assertEqual(db.get(hks.Wallet, 1).cash, D("1000"))
+            self.assertEqual(db.scalar(select(hks.ClosedTrade)), None)
+
+    def test_08_book_notional_and_spread(self):
+
         midprice, qty = b2._buy_quote([(D("0.1"), D("10000"))], D("50"))
         self.assertEqual(midprice, D("0.1"))
         self.assertEqual(qty, D("500"))
