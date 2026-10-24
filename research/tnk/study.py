@@ -70,7 +70,7 @@ def log(obj):
     print("TNK_RESULT "+json.dumps(obj,sort_keys=True,default=str),flush=True)
 
 m15,cov15=acquire("15m",START,CUTOFF,900000,35)
-h1,cov1=acquire("1h",START,CUTOFF,3600000,12)
+h1,cov1=acquire("60m",START,CUTOFF,3600000,12)
 log({"phase":"coverage","15m":cov15,"1h":cov1})
 if cov15["coverage_pct"]<85 or cov1["coverage_pct"]<85:
     log({"phase":"halt","reason":"Insufficient 180-day 15m/1h coverage; cannot safely infer signals"})
