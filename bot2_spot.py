@@ -16,7 +16,7 @@ from decimal import Decimal as D, InvalidOperation
 
 import requests
 from flask import jsonify, render_template, request
-from sqlalchemy import BigInteger, Column, Integer, Numeric, String, Text, select, func, text, insert
+from sqlalchemy import BigInteger, Column, Integer, Numeric, String, Text, select, func, text, insert, delete
 from sqlalchemy.orm import declarative_base
 
 LOG = logging.getLogger("hks.bot2")
@@ -144,7 +144,8 @@ def _sell_quote(bids, qty):
 
 def install_bot2(app, *, Session, engine, Base, db_postgres,
                  evaluate_smc, trail_stop, get_stop_fill,
-                 require_cron_token, require_owner, same_origin_post):
+                 require_cron_token, require_owner, same_origin_post,
+                 check_reset_attempt):
     """Register isolated schema, HTTP routes and scanner on existing Flask app."""
     NUM = Numeric(30, 12)
 
@@ -526,8 +527,18 @@ def install_bot2(app, *, Session, engine, Base, db_postgres,
                             else 202 if status in ("busy", "skipped")
                             else 503)
 
+    def _preview_write_guard():
+        # Vercel preview and production can share the same PostgreSQL URL.
+        # Never let a visual review change the real paper wallet or positions.
+        if os.environ.get("VERCEL_ENV", "").lower() == "preview":
+            return jsonify({"error": "Preview is read-only. Use production after UI approval."}), 403
+        return None
+
     @app.post("/api/bot2/position/<symbol>/close")
     def bot2_manual_close(symbol):
+        preview_deny = _preview_write_guard()
+        if preview_deny is not None:
+            return preview_deny
         same_origin_post()
         denied = require_owner()
         if denied is not None:
@@ -567,6 +578,119 @@ def install_bot2(app, *, Session, engine, Base, db_postgres,
                 finally:
                     connection.close()
             _runner.release()
+
+    @app.get("/api/bot2/history")
+    def bot2_history():
+        """Full owner-independent history, same read-only behavior as Bot 1."""
+        try:
+            limit = max(1, min(int(request.args.get("limit", "100")), 500))
+        except (TypeError, ValueError):
+            limit = 100
+        with Session() as db:
+            trades = db.scalars(select(B2Closed).order_by(B2Closed.id.desc()).limit(limit)).all()
+            return jsonify({"trades": [{
+                "id": t.id, "symbol": t.symbol, "score": t.score,
+                "side": "LONG", "mode": "NORMAL", "original_signal": "LONG",
+                "mfe_usd": _fmt(t.mfe_frac * t.margin, 3),
+                "mae_usd": _fmt(t.mae_frac * t.margin, 3),
+                "entry_ms": t.entry_ms, "exit_ms": t.exit_ms,
+                "duration_ms": max(0, t.exit_ms - t.entry_ms),
+                "entry": _fmt(t.entry_price), "exit": _fmt(t.exit_price),
+                "stop": _fmt(t.initial_stop), "qty": _fmt(t.qty, 8),
+                "capital_used": _fmt(t.margin, 2),
+                "reason": t.exit_reason,
+                "fees": _fmt(t.entry_fee + t.exit_fee, 4),
+                "gross": _fmt(t.gross_pnl, 4),
+                "entry_fee": _fmt(t.entry_fee, 4),
+                "exit_fee": _fmt(t.exit_fee, 4),
+                "net": _fmt(t.net_pnl, 4),
+                "net_pct": _fmt(t.net_pnl / t.margin * 100, 2) if t.margin else None,
+                "mfe_pct": _fmt(t.mfe_frac * 100, 2),
+                "mae_pct": _fmt(t.mae_frac * 100, 2)
+            } for t in trades]})
+
+    @app.get("/api/bot2/equity")
+    def bot2_equity():
+        with Session() as db:
+            points = db.scalars(select(B2Equity).order_by(B2Equity.id)).all()
+            return jsonify({"points": [
+                {"t": p.time_ms, "balance": _fmt(p.balance, 2)}
+                for p in points]})
+
+    @app.post("/api/bot2/reset")
+    def bot2_reset():
+        """Owner-authorized Bot 2 ONLY reset. No Bot 1 tables are modified."""
+        preview_deny = _preview_write_guard()
+        if preview_deny is not None:
+            return preview_deny
+        same_origin_post()
+        denial = require_owner()
+        if denial is not None:
+            return denial
+        if len(os.environ.get("HKS_RESET_PASSWORD", "")) < 6:
+            return jsonify({"error": "Reset password not configured"}), 503
+        body = request.get_json(silent=True) or {}
+        if body.get("confirm") != "RESET 1K":
+            return jsonify({"error": "Type RESET 1K to confirm"}), 400
+        allowed, error, code = check_reset_attempt(body.get("password", ""))
+        if not allowed:
+            return jsonify({"error": error}), code
+        if not _runner.acquire(blocking=False):
+            return jsonify({"error": "Bot 2 scanner busy; retry"}), 409
+        connection = None
+        try:
+            if db_postgres:
+                connection = engine.connect()
+                if not connection.execute(text("SELECT pg_try_advisory_lock(:id)"),
+                                          {"id": SCANNER_LOCK}).scalar():
+                    return jsonify({"error": "Bot 2 scanner busy on another instance"}), 409
+            with Session.begin() as db:
+                db.execute(delete(B2Closed))
+                db.execute(delete(B2Position))
+                db.execute(delete(B2Equity))
+                db.get(B2Wallet, 1).cash = START_BALANCE
+                db.add(B2Equity(time_ms=_now(), balance=START_BALANCE))
+                # Keep real 1m archive, scanner health and trade-score information.
+                for symbol in COINS:
+                    coin = db.get(B2Coin, symbol)
+                    if coin and coin.signal in ("OPEN LONG PAPER", "TRAILING SL", "INITIAL SL"):
+                        coin.signal = "WAIT"
+            LOG.warning("Owner reset Bot 2 paper wallet only")
+            return jsonify({"ok": True, "bot": 2})
+        finally:
+            if connection is not None:
+                try:
+                    connection.execute(text("SELECT pg_advisory_unlock(:id)"),
+                                       {"id": SCANNER_LOCK})
+                finally:
+                    connection.close()
+            _runner.release()
+
+    @app.get("/api/bot2/health")
+    def bot2_health():
+        """Read-only evidence for minute cron + completed 1m/15m progress."""
+        stamp = _now()
+        with Session() as db:
+            h = db.get(B2Health, 1)
+            coins = [db.get(B2Coin, symbol) for symbol in COINS]
+            return jsonify({
+                "bot": 2, "paper_enabled": PAPER_ENABLED,
+                "scanner_status": h.scan_status,
+                "last_attempt_ms": h.last_attempt_ms,
+                "last_success_ms": h.last_success_ms,
+                "last_success_age_sec": round((stamp-h.last_success_ms)/1000,1) if h.last_success_ms else None,
+                "scan_duration_ms": h.last_duration_ms,
+                "processed_coins": h.scan_count,
+                "scanner_error": h.error,
+                "coins": [
+                    {"symbol": c.symbol, "last_completed_1m_end_ms": c.last_bar_end,
+                     "last_1m_age_sec": round((stamp-c.last_bar_end)/1000,1) if c.last_bar_end else None,
+                     "last_15m_decision_end_ms": c.last_decision_end,
+                     "quote_updated_ms": c.updated_ms, "error": c.error,
+                     "archived_1m_count": db.scalar(select(func.count()).select_from(B2Bar).where(
+                         B2Bar.symbol == c.symbol)) or 0}
+                    for c in coins
+                ]})
 
     @app.get("/api/bot2/state")
     def bot2_state():
@@ -615,11 +739,22 @@ def install_bot2(app, *, Session, engine, Base, db_postgres,
                 "available_cash": _fmt(wallet.cash, 2), "equity": _fmt(cash, 2),
                 "unrealized_gross": _fmt(unreal, 4),
                 "open_positions": active, "wins": count_wins, "losses": count_losses,
-                "recent": [{"id": t.id, "symbol": t.symbol,
-                    "score": t.score, "entry": _fmt(t.entry_price),
-                    "exit": _fmt(t.exit_price), "entry_ms": t.entry_ms,
-                    "exit_ms": t.exit_ms, "stop": _fmt(t.initial_stop),
-                    "reason": t.exit_reason, "pnl": _fmt(t.net_pnl, 4),
+                "recent": [{"id": t.id, "symbol": t.symbol, "side": "LONG",
+                    "mode": "NORMAL", "score": t.score, "original_signal": "LONG",
+                    "mfe_usd": _fmt(t.mfe_frac * t.margin, 3),
+                    "mae_usd": _fmt(t.mae_frac * t.margin, 3),
+                    "entry": _fmt(t.entry_price), "exit": _fmt(t.exit_price),
+                    "entry_ms": t.entry_ms, "exit_ms": t.exit_ms,
+                    "duration_ms": max(0, t.exit_ms - t.entry_ms),
+                    "stop": _fmt(t.initial_stop), "qty": _fmt(t.qty, 8),
+                    "capital_used": _fmt(t.margin, 2),
+                    "reason": t.exit_reason, "net": _fmt(t.net_pnl, 4),
+                    "gross": _fmt(t.gross_pnl, 4),
+                    "net_pct": _fmt(t.net_pnl / t.margin * 100, 2) if t.margin else None,
+                    "mfe_pct": _fmt(t.mfe_frac * 100, 2),
+                    "mae_pct": _fmt(t.mae_frac * 100, 2),
+                    "entry_fee": _fmt(t.entry_fee, 4),
+                    "exit_fee": _fmt(t.exit_fee, 4),
                     "fees": _fmt(t.entry_fee + t.exit_fee, 4)}
                     for t in recent],
                 "equity_history": [{"t": x.time_ms, "balance": _fmt(x.balance, 2)}
@@ -640,7 +775,10 @@ def install_bot2(app, *, Session, engine, Base, db_postgres,
 
     @app.get("/bot2")
     def bot2_page():
-        return render_template("bot2.html")
+        return render_template("bot2.html",
+                               reset_ready=len(os.environ.get("HKS_RESET_PASSWORD", "")) >= 6,
+                               preview_readonly=os.environ.get("VERCEL_ENV", "").lower() == "preview",
+                               sqlite_mode=not db_postgres)
 
     app.extensions["hks_bot2"] = {
         "scan_once": scan_once, "enter": _enter, "scan_symbol": _scan_one,

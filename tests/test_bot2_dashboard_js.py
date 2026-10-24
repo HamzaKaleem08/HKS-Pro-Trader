@@ -11,10 +11,13 @@ class Bot2DashboardJavaScript(unittest.TestCase):
         snippets=re.findall(r"<script[^>]*>(.*?)</script>",html,re.S|re.I)
         self.assertEqual(len(snippets),1)
         with tempfile.NamedTemporaryFile(mode="w",encoding="utf-8",suffix=".js") as f:
-            f.write(snippets[0]);f.flush()
+            f.write(snippets[0].replace("{{ reset_ready | tojson }}","false").replace("{{ preview_readonly | tojson }}","false"));f.flush()
             result=subprocess.run(["node","--check",f.name],capture_output=True,text=True)
             self.assertEqual(result.returncode,0,result.stderr)
-        self.assertIn("manualClose",snippets[0])
+        self.assertIn("doManualClose",snippets[0])
+        self.assertIn("renderChart",snippets[0])
+        self.assertIn("selectEquityPoints",snippets[0])
+        self.assertIn("setEquityRange",snippets[0])
         self.assertIn("TNK",html)
         self.assertIn("CYS",html)
 if __name__=="__main__":

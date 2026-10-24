@@ -45,14 +45,24 @@ class Bot2Regression(unittest.TestCase):
             page = client.get("/bot2")
             self.assertEqual(page.status_code, 200)
             html = page.get_data(as_text=True)
-            self.assertIn("Bot 1 · Futures", html)
+            self.assertIn('href="/">Future</a>', html)
+            self.assertIn('href="/bot2" aria-current="page">Spot</a>', html)
             self.assertIn("TNKUSDT", html)
             self.assertIn("CYSUSDT", html)
             self.assertIn("MEXC Spot", html)
-            self.assertIn("Original trailing untouched", html)
+            self.assertIn("LIGHTWEIGHT PAPER ENGINE · BOT 2", html)
+            self.assertIn('class="market-switch"', html)
+            self.assertIn("TradingView Chart", html)
+            self.assertIn("Wallet Performance", html)
+            self.assertIn("Last 10 Closed Trades", html)
+            self.assertIn("Reset 1K", html)
+            self.assertNotIn("Spot paper trading dashboard", html)
+            self.assertNotIn("Locked Strategy V1", html)
             root = client.get("/")
             self.assertEqual(root.status_code, 200)
-            self.assertIn('href="/bot2"', root.get_data(as_text=True))
+            self.assertIn('href="/bot2">Spot</a>', root.get_data(as_text=True))
+            self.assertIn("LIGHTWEIGHT PAPER ENGINE · BOT 1", root.get_data(as_text=True))
+            self.assertIn("Reset 1K", root.get_data(as_text=True))
             data = client.get("/api/bot2/state").json
             self.assertEqual(data["bot"], "BOT 2")
             self.assertEqual(data["long_only"], True)
@@ -62,6 +72,12 @@ class Bot2Regression(unittest.TestCase):
             self.assertEqual(data["realized_balance"], "1000.00")
             self.assertEqual(data["open_positions"], [])
             self.assertEqual(client.get("/api/state").status_code, 200)
+            health=client.get("/api/bot2/health")
+            self.assertEqual(health.status_code,200)
+            self.assertEqual({c["symbol"] for c in health.json["coins"]},set(b2.COINS))
+            self.assertEqual(health.json["processed_coins"],0)
+            self.assertTrue(all(c["archived_1m_count"]==0 for c in health.json["coins"]))
+            self.assertNotIn("HKS_CRON_TOKEN",health.get_data(as_text=True))
         names = set(hks.Base.metadata.tables)
         self.assertIn("hks_wallet", names)
         self.assertIn("hks_b2_wallet", names)
@@ -207,7 +223,65 @@ class Bot2Regression(unittest.TestCase):
             self.assertEqual(db.get(hks.Wallet, 1).cash, D("1000"))
             self.assertEqual(db.scalar(select(hks.ClosedTrade)), None)
 
-    def test_08_book_notional_and_spread(self):
+    def test_08_bot2_history_equity_and_isolated_reset(self):
+        pos = self._open("TNKUSDT")
+        with hks.Session.begin() as db:
+            coin = db.get(self.bot["models"]["coin"], "TNKUSDT")
+            coin.last_decision_end = 123456000
+            db.add(self.bot["models"]["bar"](
+                symbol="TNKUSDT",start_ms=900000,
+                o=D("0.10"), h=D("0.11"), l=D("0.09"), c=D("0.10")))
+        with hks.app.test_client() as client:
+            h=client.get("/api/bot2/history?limit=100")
+            e=client.get("/api/bot2/equity")
+            self.assertEqual(h.status_code,200)
+            self.assertEqual(e.status_code,200)
+            self.assertEqual(h.json["trades"],[])
+            self.assertGreaterEqual(len(e.json["points"]),1)
+            # Headerless public endpoints do not unlock destructive controls.
+            rejected=client.post("/api/bot2/reset",
+                headers={"Origin":"http://localhost"},
+                json={"password":"example-test-password","confirm":"RESET 1K"})
+            self.assertEqual(rejected.status_code,401)
+            with mock.patch.dict(os.environ,{"HKS_RESET_PASSWORD":"example-test-password"}):
+                with mock.patch.object(hks,"owner_logged_in",return_value=True):
+                    reset=client.post("/api/bot2/reset",
+                        headers={"Origin":"http://localhost"},
+                        json={"password":"example-test-password","confirm":"RESET 1K"})
+                    self.assertEqual(reset.status_code,200,reset.get_data(as_text=True))
+                    self.assertEqual(reset.json["bot"],2)
+        with hks.Session() as db:
+            m=self.bot["models"]
+            self.assertIsNone(db.get(m["position"],"TNKUSDT"))
+            self.assertEqual(db.get(m["wallet"],1).cash,D("1000"))
+            self.assertEqual(db.get(hks.Wallet,1).cash,D("1000"))
+            self.assertEqual(db.scalar(select(hks.Position)),None)
+            self.assertIsNotNone(db.get(m["bar"],("TNKUSDT",900000)))
+            self.assertEqual(db.get(m["coin"],"TNKUSDT").last_decision_end,123456000)
+
+    def test_09_preview_cannot_reset_or_close_shared_database(self):
+        self._open("TNKUSDT")
+        with mock.patch.dict(os.environ, {"VERCEL_ENV": "preview",
+                                           "HKS_RESET_PASSWORD": "example-test-password"}):
+            with mock.patch.object(hks, "owner_logged_in", return_value=True):
+                with hks.app.test_client() as client:
+                    reset=client.post("/api/bot2/reset",
+                        headers={"Origin":"http://localhost"},
+                        json={"password":"example-test-password","confirm":"RESET 1K"})
+                    close=client.post("/api/bot2/position/TNKUSDT/close",
+                        headers={"Origin":"http://localhost"},json={})
+                    self.assertEqual(reset.status_code,403)
+                    self.assertEqual(close.status_code,403)
+                    page=client.get("/bot2").get_data(as_text=True)
+                    self.assertIn("const previewReadOnly=true;",page)
+        with hks.Session() as db:
+            m=self.bot["models"]
+            self.assertIsNotNone(db.get(m["position"],"TNKUSDT"))
+            self.assertEqual(db.get(m["wallet"],1).cash,D("949.950000000000"))
+            self.assertEqual(db.get(hks.Wallet,1).cash,D("1000"))
+
+    def test_10_book_notional_and_spread(self):
+
 
         midprice, qty = b2._buy_quote([(D("0.1"), D("10000"))], D("50"))
         self.assertEqual(midprice, D("0.1"))
