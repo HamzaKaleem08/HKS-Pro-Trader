@@ -6,10 +6,10 @@
 
 ## Verified requirements
 - Vercel: existing connected Git repository, framework Flask, domain `https://hks-pro-trader.vercel.app`, Hobby plan.
-- Protected persistent env keys already on Vercel: `DATABASE_URL`, `HKS_RESET_PASSWORD`, `HKS_CRON_TOKEN`. Do not output values or put them in URLs.
+- Persistent env keys on Vercel: `DATABASE_URL`, `HKS_RESET_PASSWORD`, `HKS_CRON_TOKEN`. **Bot 2 wake does not use any secret or header**. Keep existing Bot 1 auth/reset settings unchanged.
 - Vercel Hobby **cannot register cron schedules more frequent than daily**. Do not add a `*/1` Vercel Cron: it would reject deployment. Continue using independent external cron-job.org schedules.
 - No new Python requirements; Bot 2 `bot2_spot.py` and `templates/bot2.html` installed alongside existing Flask app.
-- Serverless workers are not reliable background engines. Bot 2's independently authenticated request-bound endpoint `GET /api/bot2/cron` handles genuine completed 1m bars each minute.
+- Serverless workers are not reliable background engines. Bot 2's direct public GET endpoint `https://hks-pro-trader.vercel.app/bot2/wake` handles genuine completed 1m bars each minute. **No custom header, secret, token or query parameter is needed**. `/api/bot2/cron` is an equivalent alias.
 - Existing `/wake` remains exclusively Bot 1. **Do not change its already running cron-job.org task.**
 
 ## Before production promotion
@@ -23,9 +23,9 @@
 - Add **production** environment setting `HKS_BOT2_PAPER_ENABLED=1` through Vercel Project Settings → Environment Variables, then redeploy **that reviewed production commit**. Do not change `DATABASE_URL` or any existing secret.
 - Initial paper sizing assumptions: `HKS_BOT2_NOTIONAL_USDT=50` per buy, `HKS_BOT2_FEE_RATE=0.001` (0.1% per side), `HKS_BOT2_EXIT_SLIPPAGE=0.003` (0.3% additional modeled exit loss). They do not assert actual exchange costs. Optionally set `HKS_BOT2_MAX_SPREAD=0.012` and `HKS_BOT2_MAX_BUY_IMPACT=0.015`.
 - In cron-job.org add **a new independent** every-minute job (leave Bot 1 existing job alone):
-  - URL `https://hks-pro-trader.vercel.app/api/bot2/cron`
+  - URL `https://hks-pro-trader.vercel.app/bot2/wake`
   - Method `GET`, interval **every 1 minute**.
-  - Request header `X-Cron-Key` set to the **already configured private** `HKS_CRON_TOKEN` value. Do not put it in query strings.
+  - **No headers, no authentication, no key**. Paste only the URL and choose every minute.
 - After 2–3 successful minute checks, inspect `/api/bot2/state`: scanner success timestamp, 2 coins, fresh genuine MEXC 1m prices, no stop/decision gaps and error messages. Check live Vercel runtime logs for DB/retries.
 
 ## Locked paper V1 strategy
@@ -40,7 +40,7 @@
 - Monitor free DB storage growth (2 coins x 1440 candles/day); do not promise limitless retention.
 
 ## Important deployment caution
-If Bot 2 is enabled but its **independent** cron-job.org job has not been set, `/bot2` may appear ready but **it will not scan unattended**. Do not report 24/7 trading until repeated scheduler executions were verified. On Vercel Hobby, configured Vercel Cron at 1m is not allowed.
+If Bot 2 is enabled but its **independent** cron-job.org job has not been set, `/bot2` may appear ready but **it will not scan unattended**. Public GET also means any visitor who knows `/bot2/wake` can trigger an extra scan. Existing cross-instance locks and DB per-minute debounce prevent double processing, but they are not abuse prevention. Do not report 24/7 trading until repeated scheduler executions were verified. On Vercel Hobby, configured Vercel Cron at 1m is not allowed.
 
 ## Rollback
 Vercel dashboard → choose previous known-good production deployment and rollback if site regression. Pause the **new Bot 2 external cron** while investigating. Do not wipe PostgreSQL tables or reset existing Bot 1 wallet.
