@@ -162,22 +162,22 @@ log({"phase":"hks_signals","180d_total":dict(stats),"signals":[dict(utc=iso(x["t
 
 # Detailed execution test on 90d minute bars: only historical OHLCV, fill at
 # next complete minute OPEN, no hindsight in fills, stop checked before trail.
-m1,covmin=acquire("1m",MINUTE_START,CUTOFF,60000,160)
-log({"phase":"minute_coverage","1m":covmin})
+m1,covmin=acquire("5m",START,CUTOFF,300000,85)
+log({"phase":"execution_proxy_coverage","5m":covmin})
 if covmin["coverage_pct"]<95 or covmin["gaps"]>100:
-    log({"phase":"stop_simulation","status":"not_run","reason":"Insufficient or gappy 1m price data"})
+    log({"phase":"stop_simulation","status":"not_run","reason":"Insufficient or gappy 5m price data"})
     sys.exit(0)
 
 mins_ends=[x["t"] for x in m1]
 # To check 15m signal at close t, enter next 1m candle (open t), only if exists.
-def simulate(mode,fee_round_trip):
+def simulate(mode,fee_round_trip,days):
     wallet=D("1000")
     entries=[]
     active_until=0
     fee_one=D(str(fee_round_trip))/D(2)
     for sig in signals:
         t=sig["t"]
-        if t<epoch(MINUTE_START) or t>=epoch(CUTOFF)-60000:continue
+        if t<epoch(CUTOFF-timedelta(days=days)) or t>=epoch(CUTOFF)-300000:continue
         # Spot-only replay uses long-compatible signals; short is separate synthetic
         side=(sig["original"] if mode=="NORMAL" else
               ("SHORT" if sig["original"]=="LONG" else "LONG"))
@@ -212,7 +212,9 @@ def simulate(mode,fee_round_trip):
             if progress>=D(40):
                 locked=D(10)+(progress-D(40))*D("1.5") if progress<=D(80) else progress-D(10)
                 stop=max(stop,entry+distance*locked/100)
-        if not exit_found:continue
+        if not exit_found:
+            active_until=epoch(CUTOFF)
+            continue
         gross=(exit_price-entry)*qty
         exit_fee=abs(exit_price*qty)*fee_one
         pnl=gross-entry_fee-exit_fee
@@ -224,12 +226,13 @@ def simulate(mode,fee_round_trip):
                             reason=reason,notional=round(float(capital),3),
                             net=round(float(pnl),4),net_R=round(float(pnl/(capital*sl_frac)),3),
                             wallet=round(float(wallet),4)))
-    return {"mode":mode,"round_trip_cost_rate":fee_round_trip,
+    return {"mode":mode,"days":days,"round_trip_cost_rate":fee_round_trip,
             "trades":len(entries),"wins":sum(x["net"]>0 for x in entries),
             "net_return_pct":round(float((wallet/D(1000)-1)*100),3),
             "mean_R":round(statistics.mean([x["net_R"] for x in entries]),3) if entries else None,
             "entries":entries[:40]}
-for mode in ("NORMAL","REVERSE"):
-    for costs in (.002,.005):
-        log({"phase":"hks_spot_long_90d","result":simulate(mode,costs)})
-log({"phase":"done","basis":"MEXC TNKUSDT spot candles; no fills/depth verified; results hypothetical and no out-of-sample validation"})
+for days in (90,180):
+    for mode in ("NORMAL","REVERSE"):
+        for costs in (.002,.005):
+            log({"phase":"hks_spot_long_5m_proxy","result":simulate(mode,costs,days)})
+log({"phase":"done","basis":"MEXC TNKUSDT spot 5m OHLCV with 15m/1h actual HKS eligibility; 5m OHLC cannot reproduce 1m trailing/stop path or intrabar order; assumptions are non-executable and no out-of-sample validation"})
