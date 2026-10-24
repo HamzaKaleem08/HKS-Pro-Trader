@@ -11,7 +11,7 @@ class Bot2DashboardJavaScript(unittest.TestCase):
         snippets=re.findall(r"<script[^>]*>(.*?)</script>",html,re.S|re.I)
         self.assertEqual(len(snippets),1)
         with tempfile.NamedTemporaryFile(mode="w",encoding="utf-8",suffix=".js") as f:
-            f.write(snippets[0].replace("{{ reset_ready | tojson }}","false"));f.flush()
+            f.write(snippets[0].replace("{{ reset_ready | tojson }}","false").replace("{{ preview_readonly | tojson }}","false"));f.flush()
             result=subprocess.run(["node","--check",f.name],capture_output=True,text=True)
             self.assertEqual(result.returncode,0,result.stderr)
         self.assertIn("doManualClose",snippets[0])
