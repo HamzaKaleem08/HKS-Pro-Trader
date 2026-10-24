@@ -162,7 +162,7 @@ log({"phase":"hks_signals","180d_total":dict(stats),"signals":[dict(utc=iso(x["t
 
 # Detailed execution test on 90d minute bars: only historical OHLCV, fill at
 # next complete minute OPEN, no hindsight in fills, stop checked before trail.
-m1,covmin=acquire("5m",START,CUTOFF,300000,85)
+m1,covmin=acquire("5m",START,CUTOFF,300000,125)
 log({"phase":"execution_proxy_coverage","5m":covmin})
 if covmin["coverage_pct"]<95 or covmin["gaps"]>100:
     log({"phase":"stop_simulation","status":"not_run","reason":"Insufficient or gappy 5m price data"})
