@@ -52,6 +52,7 @@ a{color:var(--blue)}.shell{max-width:1580px;margin:auto;padding:26px clamp(12px,
 <script>
 
 const resetReady={{ reset_ready | tojson }};
+const previewReadOnly={{ preview_readonly | tojson }};
 let ownerAuthenticated=false;
 const pendingCloses=new Set();
 let coinData=[],selected='TNKUSDT',timeframe='15',selectedHistory=[];
@@ -74,9 +75,9 @@ async function refreshOwnerStatus(){try{const r=await fetch('/api/owner/status',
 function toggleOwner(){if(ownerAuthenticated)showModal('Owner Logout','<p>Lock owner controls?</p><button class="btn danger" onclick="doOwnerLogout()">Logout & Lock</button>');else showModal('Owner Login','<label class="field">Owner password<input type="password" id="owner-pass" autocomplete="current-password"></label><button class="btn primary" id="owner-login-action" onclick="doOwnerLogin()">Unlock Dashboard</button>')}
 async function doOwnerLogin(){const b=el('owner-login-action');if(b.disabled)return;b.disabled=true;try{await post('/api/owner/login',{password:el('owner-pass').value});ownerAuthenticated=true;hideModal();updateOwnerUI();await load()}catch(e){b.disabled=false;notify(e.message)}}
 async function doOwnerLogout(){try{await post('/api/owner/logout',{});ownerAuthenticated=false;hideModal();updateOwnerUI();await load()}catch(e){notify(e.message)}}
-function openTools(){if(!ownerAuthenticated){notify('Owner Login required to reset the paper account.');return}showModal('Reset 1K','<p class="small negative">Reset deletes Bot 2 paper positions, closed trades and wallet history. It does not affect Future or saved candle data.</p><label class="field">Reset password<input type="password" id="reset-pass" autocomplete="off"></label><label class="field">Type RESET 1K<input id="reset-confirm" placeholder="RESET 1K"></label><button class="btn danger" onclick="doReset()" '+(resetReady?'':'disabled')+'>Reset 1K</button>')}
+function openTools(){if(previewReadOnly){notify('Preview is read-only. Reset is available on production only.');return}if(!ownerAuthenticated){notify('Owner Login required to reset the paper account.');return}showModal('Reset 1K','<p class="small negative">Reset deletes Bot 2 paper positions, closed trades and wallet history. It does not affect Future or saved candle data.</p><label class="field">Reset password<input type="password" id="reset-pass" autocomplete="off"></label><label class="field">Type RESET 1K<input id="reset-confirm" placeholder="RESET 1K"></label><button class="btn danger" onclick="doReset()" '+(resetReady?'':'disabled')+'>Reset 1K</button>')}
 async function doReset(){try{const p=el('reset-pass').value,confirm=el('reset-confirm').value;if(!window.confirm('Delete Bot 2 paper positions and trade history; reset Bot 2 to $1,000?'))return;await post('/api/bot2/reset',{password:p,confirm});hideModal();await load()}catch(e){notify(e.message)}}
-async function doManualClose(symbol){if(!ownerAuthenticated||!['TNKUSDT','CYSUSDT'].includes(symbol)||pendingCloses.has(symbol))return;pendingCloses.add(symbol);try{const res=await post('/api/bot2/position/'+symbol+'/close',{});await load();notify(symbol+' manually closed at '+money(res.exit_price,6)+' · Net '+money(res.net_pnl,4))}catch(e){notify(e.message)}finally{pendingCloses.delete(symbol)}}
+async function doManualClose(symbol){if(previewReadOnly){notify('Preview is read-only.');return}if(!ownerAuthenticated||!['TNKUSDT','CYSUSDT'].includes(symbol)||pendingCloses.has(symbol))return;pendingCloses.add(symbol);try{const res=await post('/api/bot2/position/'+symbol+'/close',{});await load();notify(symbol+' manually closed at '+money(res.exit_price,6)+' · Net '+money(res.net_pnl,4))}catch(e){notify(e.message)}finally{pendingCloses.delete(symbol)}}
 function selectCoin(s){if(!['TNKUSDT','CYSUSDT'].includes(s))return;selected=s;el('selected-symbol').textContent=s;renderCoins();renderChart()}
 function selectTF(tf){timeframe=tf;document.querySelectorAll('[data-tf]').forEach(x=>x.classList.toggle('selected',x.dataset.tf===tf));renderChart()}
 function renderChart(){
@@ -256,7 +257,7 @@ async function load(){
   const pbody=el('positions');pbody.replaceChildren();
   if(!d.open_positions.length)pbody.innerHTML='<tr><td colspan="8" class="empty">No open positions</td></tr>';
   d.open_positions.forEach(p=>{const tr=document.createElement('tr');tr.innerHTML='<td><b>'+escapeHTML(p.symbol)+'</b></td><td>LONG</td><td>NORMAL</td><td>'+fmt(p.entry,Number(p.entry)<1?6:2)+'</td><td>'+fmt(p.stop,Number(p.stop)<1?6:2)+'</td><td>'+money(p.notional,2)+'</td><td class="'+cssSigned(p.pnl_gross)+'">'+money(p.pnl_gross,3)+'</td><td><button class="btn danger" type="button">Close Trade</button></td>';
-   const b=tr.querySelector('button');b.disabled=!ownerAuthenticated||pendingCloses.has(p.symbol);b.textContent=pendingCloses.has(p.symbol)?'Closing…':'Close Trade';b.onclick=()=>doManualClose(p.symbol);pbody.appendChild(tr)});
+   const b=tr.querySelector('button');b.disabled=previewReadOnly||!ownerAuthenticated||pendingCloses.has(p.symbol);b.textContent=pendingCloses.has(p.symbol)?'Closing…':'Close Trade';b.onclick=()=>doManualClose(p.symbol);pbody.appendChild(tr)});
   const recent=el('recent');recent.replaceChildren();
   if(!d.recent.length)recent.innerHTML='<tr><td colspan="15" class="empty">No closed trades yet</td></tr>';
   d.recent.slice(0,10).forEach(t=>recent.appendChild(rowOfTrade(t)));
