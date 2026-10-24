@@ -5,6 +5,9 @@ from datetime import datetime,timezone
 from decimal import Decimal as D
 import json
 import time
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import bot2_spot as b2
 
 now=int(time.time()*1000)
