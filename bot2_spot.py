@@ -666,6 +666,32 @@ def install_bot2(app, *, Session, engine, Base, db_postgres,
                     connection.close()
             _runner.release()
 
+    @app.get("/api/bot2/health")
+    def bot2_health():
+        """Read-only evidence for minute cron + completed 1m/15m progress."""
+        stamp = _now()
+        with Session() as db:
+            h = db.get(B2Health, 1)
+            coins = [db.get(B2Coin, symbol) for symbol in COINS]
+            return jsonify({
+                "bot": 2, "paper_enabled": PAPER_ENABLED,
+                "scanner_status": h.scan_status,
+                "last_attempt_ms": h.last_attempt_ms,
+                "last_success_ms": h.last_success_ms,
+                "last_success_age_sec": round((stamp-h.last_success_ms)/1000,1) if h.last_success_ms else None,
+                "scan_duration_ms": h.last_duration_ms,
+                "processed_coins": h.scan_count,
+                "scanner_error": h.error,
+                "coins": [
+                    {"symbol": c.symbol, "last_completed_1m_end_ms": c.last_bar_end,
+                     "last_1m_age_sec": round((stamp-c.last_bar_end)/1000,1) if c.last_bar_end else None,
+                     "last_15m_decision_end_ms": c.last_decision_end,
+                     "quote_updated_ms": c.updated_ms, "error": c.error,
+                     "archived_1m_count": db.scalar(select(func.count()).select_from(B2Bar).where(
+                         B2Bar.symbol == c.symbol)) or 0}
+                    for c in coins
+                ]})
+
     @app.get("/api/bot2/state")
     def bot2_state():
         tick = _now()
