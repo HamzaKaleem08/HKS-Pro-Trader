@@ -16,7 +16,7 @@ from decimal import Decimal as D, InvalidOperation
 
 import requests
 from flask import jsonify, render_template, request
-from sqlalchemy import BigInteger, Column, Integer, Numeric, String, Text, select, func, text
+from sqlalchemy import BigInteger, Column, Integer, Numeric, String, Text, select, func, text, insert
 from sqlalchemy.orm import declarative_base
 
 LOG = logging.getLogger("hks.bot2")
@@ -346,12 +346,16 @@ def install_bot2(app, *, Session, engine, Base, db_postgres,
             prev_decision = state.last_decision_end
         if now_ms - last_end > 180_000:
             raise ValueError("MEXC minute feed stale")
-        if saved_end and last_end - saved_end > 499 * M1_STEP and pending_position:
-            raise ValueError("STOP: OPEN POSITION candle gap over 499m; manual review")
         if saved_end and last_end - saved_end < 0:
             raise ValueError("Candle time moved backwards")
-        future = [x for x in minute if saved_end is None or x["end"] > saved_end]
-        if saved_end and future and future[0]["t"] != saved_end:
+        # No skipped 1m candles with an OPEN position (critical stop safety).
+        # Flat positions may resynchronize from genuine available minute bars.
+        resync = bool(saved_end and last_end - saved_end > 499 * M1_STEP)
+        if resync and pending_position:
+            raise ValueError("STOP: OPEN POSITION candle gap over 499m; manual review")
+        replay_anchor = None if resync else saved_end
+        future = [x for x in minute if replay_anchor is None or x["end"] > replay_anchor]
+        if replay_anchor and future and future[0]["t"] != replay_anchor:
             raise ValueError("Missing 1m candles since previous scan")
         # One 15m decision at the CURRENT completed boundary only. No retro-entry.
         needs_decision = last_end % Q15_STEP == 0 and last_end != prev_decision
@@ -382,10 +386,19 @@ def install_bot2(app, *, Session, engine, Base, db_postgres,
             if pos is not None and future:
                 _process_position(db, pos, future)
             if future:
-                # Persist actual public MEXC candles; no interpolation or guesses.
-                for bar in future:
-                    db.add(B2Bar(symbol=symbol, start_ms=bar["t"],
-                                 o=bar["o"], h=bar["h"], l=bar["l"], c=bar["c"]))
+                # Bulk store public authentic bars, minimizing free-tier DB trips.
+                # Safe flat-coin resync avoids duplicate archive primary keys.
+                inserts = future
+                if resync:
+                    existing = set(db.scalars(select(B2Bar.start_ms).where(
+                        B2Bar.symbol == symbol,
+                        B2Bar.start_ms >= future[0]["t"],
+                        B2Bar.start_ms <= future[-1]["t"])).all())
+                    inserts = [bar for bar in future if bar["t"] not in existing]
+                if inserts:
+                    db.execute(insert(B2Bar), [{"symbol": symbol,
+                        "start_ms": bar["t"], "o": bar["o"],
+                        "h": bar["h"], "l": bar["l"], "c": bar["c"]} for bar in inserts])
             coin.last_bar_end = last_end
             if decision is not None and coin.last_decision_end != last_end:
                 coin.last_decision_end = last_end
