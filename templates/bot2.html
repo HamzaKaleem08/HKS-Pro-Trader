@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#101423">
+<title>HKS Bot 2 · MEXC Spot Paper</title>
+<link rel="icon" type="image/svg+xml" href="/static/hks-favicon.svg">
+<style>
+:root{font-family:Inter,system-ui,-apple-system,'Segoe UI',Arial,sans-serif;color-scheme:dark;--bg:#090e19;--panel:#121b2b;--soft:#1b273b;--line:#2a3950;--text:#f0f4fd;--sub:#95a7c2;--green:#4fe0ad;--red:#fc778c;--blue:#87abff;--gold:#f5c77a}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text)}a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}.shell{max-width:1330px;margin:auto;padding:28px clamp(12px,4vw,44px) 50px}
+header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:18px;margin-bottom:24px}.brand{display:flex;gap:13px;align-items:center}.brandmark{width:51px;height:51px;background:#081320;border-radius:13px;display:grid;place-items:center}.brandmark img{width:100%;height:100%;object-fit:contain}.eyebrow{font-size:10px;letter-spacing:2px;color:var(--gold);font-weight:700}.brandtitle{font-size:23px;font-weight:850}.muted{color:var(--sub)}.small{font-size:12px}.nav{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.pill,.linkbtn{padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel);font-size:12px;font-weight:700}.pill{color:var(--sub)}.linkbtn.active{background:#7fa0ff20;border-color:var(--blue);color:var(--text)}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:7px;background:var(--sub)}.dot.ok{background:var(--green)}.dot.warn{background:var(--gold)}.dot.bad{background:var(--red)}
+.notice{border:1px solid #e7a74970;color:var(--gold);background:#e7a74910;padding:12px 15px;border-radius:12px;margin-bottom:15px;font-size:12px;line-height:1.65}.headline{font-size:30px;letter-spacing:-1px;font-weight:850;margin:12px 0 7px}.subline{font-size:13px;color:var(--sub);margin-bottom:22px;line-height:1.65}.kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}.panel,.kpi{border:1px solid var(--line);border-radius:16px;background:var(--panel)}.kpi{padding:18px;min-height:125px}.label{font-size:10px;letter-spacing:.65px;color:var(--sub);font-weight:750;text-transform:uppercase}.value{font-size:clamp(21px,2vw,29px);font-weight:850;margin-top:17px;white-space:nowrap}.positive{color:var(--green)}.negative{color:var(--red)}.grid{display:grid;grid-template-columns:1.2fr .8fr;gap:14px;margin-top:14px}.panel{padding:19px}.heading{font-size:15px;font-weight:800;margin:0 0 16px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}.coins{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}.coin{padding:17px;border-radius:13px;background:var(--soft);border:1px solid var(--line);min-height:158px}.coin-title{font-weight:800;font-size:17px;display:flex;justify-content:space-between;align-items:center;gap:5px}.coin-label{border:1px solid #48d5a54a;background:#48d5a519;color:var(--green);border-radius:7px;font-size:10px;padding:4px 6px}.coin-price{font-size:22px;font-weight:820;letter-spacing:-.5px;margin-top:15px}.coin-meta{font-size:12px;line-height:1.9;color:var(--sub)}.score{color:var(--gold);font-weight:850}table{border-collapse:collapse;width:100%;font-size:12px;white-space:nowrap}td,th{padding:12px 9px;border-bottom:1px solid var(--line);text-align:left}th{text-transform:uppercase;font-size:10px;letter-spacing:.4px;color:var(--sub)}tr:last-child td{border:0}.tablewrap{overflow:auto;max-width:100%}.empty{font-size:12px;color:var(--sub);text-align:center;padding:22px}.bar{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:11px 0;border-top:1px solid var(--line);font-size:12px}.bar:first-of-type{border:0}.key{color:var(--sub)}.item{font-weight:700}.full{margin-top:14px}.banner{border:1px solid #5ba1ff42;background:#5ba1ff10;padding:14px;border-radius:12px;font-size:12px;line-height:1.7;margin-top:15px}.foot{font-size:11px;color:var(--sub);margin-top:21px;line-height:1.65}.chart{width:100%;height:165px;background:var(--soft);border-radius:10px}#error{font-size:12px;color:var(--red);padding:8px 0}button{font:inherit;cursor:pointer}.titlebar{display:flex;align-items:center;gap:9px}.badge{font-size:10px;padding:4px 7px;border-radius:7px;background:#f5c77a19;color:var(--gold);border:1px solid #f5c77a36}
+@media(max-width:950px){.kpis{grid-template-columns:repeat(3,1fr)}.grid{grid-template-columns:1fr}}@media(max-width:620px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.kpi{min-height:104px;padding:13px}.value{font-size:20px;margin-top:13px}.coins{grid-template-columns:1fr}.headline{font-size:24px}.panel{padding:14px}.shell{padding:17px 12px 40px}}
+</style></head>
+<body><div class="shell">
+<header><div class="brand"><div class="brandmark"><img src="/static/hks-modern-chart.svg" alt=""></div><div><div class="eyebrow">HKS PRO TRADER</div><div class="brandtitle">Bot 2 <span style="color:var(--gold)">· MEXC Spot</span></div></div></div>
+<nav class="nav" aria-label="HKS bots"><a class="linkbtn" href="/">Bot 1 · Futures ↗</a><a class="linkbtn active" href="/bot2">Bot 2 · Spot</a><span class="pill" id="scanner"><i class="dot"></i>Scanner checking</span></nav>
+</header>
+<div class="headline">Spot paper trading dashboard</div>
+<div class="subline">1 independent Bot 2 scanning both <strong>TNKUSDT</strong> and <strong>CYSUSDT</strong>. LONG only · Original 15m SMC score ≥85 · 200% initial ATR stop · Original trailing untouched.</div>
+<div id="pause" class="notice" hidden>Bot 2 scanning is disabled until <code>HKS_BOT2_PAPER_ENABLED=1</code> is set in the server environment. This is a separate activation step; Bot 1 is unaffected.</div>
+<div id="error" role="status"></div>
+<section class="kpis">
+ <div class="kpi"><div class="label">Realized wallet</div><div class="value" id="wallet">$1,000.00</div><div class="small muted">Closed-trade balance</div></div>
+ <div class="kpi"><div class="label">Available USDT</div><div class="value" id="available">$1,000.00</div><div class="small muted">Independent paper wallet</div></div>
+ <div class="kpi"><div class="label">Unrealized PnL</div><div class="value" id="unreal">$0.00</div><div class="small muted">Gross bid-mark estimate</div></div>
+ <div class="kpi"><div class="label">Winning trades</div><div class="value positive" id="wins">0</div><div class="small muted">After modeled fees</div></div>
+ <div class="kpi"><div class="label">Win rate</div><div class="value" id="rate">0%</div><div class="small muted" id="tradesmeta">0 closed trades</div></div>
+</section>
+<div class="grid">
+<section class="panel">
+ <div class="heading"><span>2 Coin Scanner <span class="badge">LONG ONLY</span></span><span class="small muted">MEXC Spot · genuine 1m</span></div>
+ <div class="coins" id="coins"><div class="coin muted">Waiting for TNK...</div><div class="coin muted">Waiting for CYS...</div></div>
+ <p class="foot" id="update">Price and scanner timestamps are shown in UTC. A stale quote is not labeled live.</p>
+</section>
+<section class="panel">
+ <div class="heading">Locked Strategy V1 <span class="badge">Paper only</span></div>
+ <div class="bar"><span class="key">Coins</span><span class="item">TNKUSDT + CYSUSDT</span></div>
+ <div class="bar"><span class="key">Signal</span><span class="item">15m SMC, Score ≥85</span></div>
+ <div class="bar"><span class="key">Side</span><span class="item">LONG only</span></div>
+ <div class="bar"><span class="key">Initial SL</span><span class="item">Original ATR × 200%</span></div>
+ <div class="bar"><span class="key">Trailing</span><span class="item">Original 2R anchor</span></div>
+ <div class="bar"><span class="key">Take profit</span><span class="item">Unchanged</span></div>
+ <div class="bar"><span class="key">Positions</span><span class="item">Max 1 per coin</span></div>
+ <div class="bar"><span class="key">Indicative order size</span><span class="item" id="notional">$50</span></div>
+ <div class="banner">No API keys, no deposits, no real orders. Entries use observed ask book depth; stops use completed 1m OHLC with an explicit conservative slippage assumption. Historical paper results are <b>not</b> exchange fills.</div>
+</section>
+</div>
+<section class="panel full">
+ <div class="heading">Open Bot 2 Positions <span class="small muted" id="positionsmeta">0 active</span></div>
+ <div class="tablewrap"><table><thead><tr><th>Coin</th><th>Side</th><th>Entry</th><th>Current stop</th><th>Position value</th><th>Unrealized PnL</th><th>MFE</th><th>MAE</th></tr></thead><tbody id="positions"><tr><td colspan="8" class="empty">No open paper positions</td></tr></tbody></table></div>
+</section>
+<div class="grid">
+ <section class="panel"><div class="heading">Bot 2 Realized Equity <span class="small muted">Separate from Bot 1</span></div><svg id="equity" class="chart" viewBox="0 0 750 165" preserveAspectRatio="none" aria-label="Bot 2 wallet realized closed-trade equity chart"></svg><div class="foot">Realized balance from saved closed trades; no fabricated equity history.</div></section>
+ <section class="panel"><div class="heading">Scanner health</div><div class="bar"><span class="key">Last successful scan</span><span class="item" id="lastscan">—</span></div><div class="bar"><span class="key">Last attempt</span><span class="item" id="lastattempt">—</span></div><div class="bar"><span class="key">Processed</span><span class="item" id="processed">—</span></div><div class="bar"><span class="key">Modeled fee per side</span><span class="item" id="fees">—</span></div><div class="bar"><span class="key">Modeled exit slippage</span><span class="item" id="slippage">—</span></div><div class="foot" id="scanerror"></div></section>
+</div>
+<section class="panel full">
+<div class="heading">Bot 2 Closed Trades <span class="small muted">Both coins · 1 independent ledger</span></div>
+<div class="tablewrap"><table><thead><tr><th>Coin</th><th>Score</th><th>Entry (UTC)</th><th>Exit (UTC)</th><th>Entry price</th><th>Exit price</th><th>Reason</th><th>Total fees</th><th>Net PnL</th></tr></thead><tbody id="history"><tr><td colspan="9" class="empty">No closed trades yet</td></tr></tbody></table></div>
+</section>
+<p class="foot">HKS Bot 2 · Isolated from Bitget Futures Bot 1 · Public MEXC Spot market data · Estimated execution only · Scanner must run server-side even when the dashboard is closed (independent protected cron).</p>
+</div>
+<script>
+const el=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const cash=(v,d=2)=>v==null?'—':(Number(v)<0?'−':'')+'$'+Math.abs(Number(v)).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+const price=v=>v==null?'—':Number(v).toLocaleString('en-US',{maximumFractionDigits:8,minimumFractionDigits:5});
+const time=t=>t?new Date(Number(t)).toLocaleString('en-GB',{timeZone:'UTC',hour12:false,day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'—';
+const signed=n=>Number(n)>0?'positive':Number(n)<0?'negative':'';
+function equityChart(points){
+ const svg=el('equity');svg.replaceChildren();const ns='http://www.w3.org/2000/svg';const vals=points.map(p=>Number(p.balance)).filter(Number.isFinite);
+ if(!vals.length)return;
+ const lo=Math.min(...vals)-2, hi=Math.max(...vals)+2,span=hi-lo||1;
+ const coords=vals.map((v,i)=>[18+(vals.length===1?0:i/(vals.length-1)*714),145-(v-lo)/span*125]);
+ const path=document.createElementNS(ns,'polyline');path.setAttribute('fill','none');path.setAttribute('stroke','#4fe0ad');path.setAttribute('stroke-width','3');path.setAttribute('points',coords.map(c=>c.join(',')).join(' '));svg.appendChild(path);
+ const a=document.createElementNS(ns,'text');a.setAttribute('x','12');a.setAttribute('y','19');a.setAttribute('fill','#95a7c2');a.setAttribute('font-size','12');a.textContent=cash(vals.at(-1));svg.appendChild(a);
+}
+async function load(){
+ try{
+ const r=await fetch('/api/bot2/state',{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);
+ const d=await r.json();el('error').textContent='';el('pause').hidden=d.paper_enabled;
+ el('wallet').textContent=cash(d.realized_balance);el('available').textContent=cash(d.available_cash);
+ el('unreal').textContent=cash(d.unrealized_gross,3);el('unreal').className='value '+signed(d.unrealized_gross);
+ el('wins').textContent=d.wins;el('rate').textContent=(100*d.wins/Math.max(d.wins+d.losses,1)).toFixed(1)+'%';
+ el('tradesmeta').textContent=(d.wins+d.losses)+' closed trades';el('notional').textContent=cash(d.assumptions.trade_notional_usdt,0);
+ el('fees').textContent=d.assumptions.fee_side_pct+'%';el('slippage').textContent=d.assumptions.exit_slippage_pct+'%';
+ el('coins').innerHTML=d.coins.map(c=>'<div class="coin"><div class="coin-title"><span>'+esc(c.symbol)+'</span><span class="coin-label">'+(c.open?'OPEN LONG':'WATCHING')+'</span></div><div class="coin-price">'+price(c.price_bid)+'</div><div class="coin-meta">SMC Score: <span class="score">'+esc(c.trade_score)+'</span> / 85<br>Signal: '+esc(c.signal)+'<br>Quote: '+(c.quote_stale?'STALE':'fresh')+' · '+time(c.updated)+(c.error?'<br><span class="negative">'+esc(c.error)+'</span>':'')+'</div><a class="small" href="https://www.tradingview.com/chart/?symbol='+encodeURIComponent('MEXC:'+c.symbol)+'" rel="noopener noreferrer" target="_blank">View MEXC chart ↗</a></div>').join('');
+ const state=d.scanner.status;el('scanner').innerHTML='<i class="dot '+(state==='OK'?'ok':state==='ERROR'||state==='OFFLINE'?'bad':'warn')+'"></i>'+esc(state);
+ el('lastscan').textContent=time(d.scanner.last_success);el('lastattempt').textContent=time(d.scanner.last_attempt);el('processed').textContent=d.scanner.processed+'/2 coins';el('scanerror').textContent=d.scanner.error||'Each coin error is isolated; failed data never create artificial candles.';
+ const pbody=el('positions');pbody.innerHTML=d.open_positions.length?d.open_positions.map(p=>'<tr><td><strong>'+esc(p.symbol)+'</strong></td><td>LONG</td><td>'+price(p.entry)+'</td><td>'+price(p.stop)+'</td><td>'+cash(p.notional,2)+'</td><td class="'+signed(p.pnl_gross)+'">'+cash(p.pnl_gross,3)+'</td><td>'+esc(p.mfe_pct)+'%</td><td>'+esc(p.mae_pct)+'%</td></tr>').join(''):'<tr><td colspan="8" class="empty">No open paper positions</td></tr>';
+ el('positionsmeta').textContent=d.open_positions.length+' active';
+ el('history').innerHTML=d.recent.length?d.recent.map(t=>'<tr><td>'+esc(t.symbol)+'</td><td>'+esc(t.score)+'</td><td>'+time(t.entry_ms)+'</td><td>'+time(t.exit_ms)+'</td><td>'+price(t.entry)+'</td><td>'+price(t.exit)+'</td><td>'+esc(t.reason)+'</td><td>'+cash(t.fees,3)+'</td><td class="'+signed(t.pnl)+'">'+cash(t.pnl,3)+'</td></tr>').join(''):'<tr><td colspan="9" class="empty">No closed trades yet</td></tr>';
+ equityChart(d.equity_history);
+ }catch(e){el('error').textContent='Bot 2 state unavailable: '+e.message;el('scanner').innerHTML='<i class="dot bad"></i>OFFLINE'}
+}
+load();setInterval(load,4000);
+</script></body></html>
