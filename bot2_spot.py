@@ -125,6 +125,23 @@ def _buy_quote(asks, notional):
     return notional / qty, qty
 
 
+
+def _sell_quote(bids, qty):
+    """Paper manual close at current public bid book depth (not a real sell)."""
+    left, proceeds = qty, ZERO
+    for price, depth in bids:
+        if price <= ZERO or depth <= ZERO:
+            continue
+        units = min(left, depth)
+        proceeds += price * units
+        left -= units
+        if left < D("0.000000000001"):
+            break
+    if left >= D("0.000000000001") or proceeds <= ZERO:
+        raise ValueError("Insufficient bid-side depth for paper manual close")
+    return proceeds / qty
+
+
 def install_bot2(app, *, Session, engine, Base, db_postgres,
                  evaluate_smc, trail_stop, get_stop_fill,
                  require_cron_token, require_owner, same_origin_post):
@@ -468,8 +485,10 @@ def install_bot2(app, *, Session, engine, Base, db_postgres,
 
     @app.before_request
     def _bot2_background_on_visit():
-        # Starts on same visits/keepalive as Bot1, but separate scanner lock.
-        _ensure_loop()
+        # Protected cron must run request-bound without a competing auto scan.
+        # /wake and Bot1 /api/cron remain fully Bot1-owned.
+        if request.path not in ("/api/bot2/cron", "/wake", "/api/cron"):
+            _ensure_loop()
 
     @app.get("/api/bot2/cron")
     def bot2_cron():
@@ -481,6 +500,48 @@ def install_bot2(app, *, Session, engine, Base, db_postgres,
                 "Set HKS_BOT2_PAPER_ENABLED=1 after reviewing deployment"}), 503
         result = scan_once()
         return jsonify(result), (200 if result["status"] in ("ok", "partial", "busy", "skipped") else 503)
+
+    @app.post("/api/bot2/position/<symbol>/close")
+    def bot2_manual_close(symbol):
+        same_origin_post()
+        denied = require_owner()
+        if denied is not None:
+            return denied
+        symbol = symbol.upper()
+        if symbol not in COINS:
+            return jsonify({"error": "Bot 2 coin not found"}), 404
+        if not _runner.acquire(blocking=False):
+            return jsonify({"error": "Bot 2 scanner active; retry shortly"}), 409
+        connection = None
+        try:
+            if db_postgres:
+                connection = engine.connect()
+                if not connection.execute(text("SELECT pg_try_advisory_lock(:id)"),
+                                          {"id": SCANNER_LOCK}).scalar():
+                    return jsonify({"error": "Another Bot 2 scan is active"}), 409
+            # Do not fabricate an exchange sell: bid-depth at request time.
+            bids, _asks = _book(symbol)
+            with Session.begin() as db:
+                pos = db.get(B2Position, symbol)
+                if pos is None:
+                    return jsonify({"error": "No open Bot 2 position"}), 404
+                exit_price = _sell_quote(bids, pos.qty)
+                trade = _record_close(db, pos, exit_price, _now(), "MANUAL PAPER CLOSE")
+                response = {"ok": True, "symbol": symbol,
+                            "exit_price": _fmt(exit_price),
+                            "net_pnl": _fmt(trade.net_pnl, 4)}
+            return jsonify(response)
+        except (ValueError, requests.RequestException) as exc:
+            LOG.warning("Bot2 manual paper close unavailable: %s", exc)
+            return jsonify({"error": "MEXC book unavailable; position unchanged"}), 503
+        finally:
+            if connection is not None:
+                try:
+                    connection.execute(text("SELECT pg_advisory_unlock(:id)"),
+                                       {"id": SCANNER_LOCK})
+                finally:
+                    connection.close()
+            _runner.release()
 
     @app.get("/api/bot2/state")
     def bot2_state():
