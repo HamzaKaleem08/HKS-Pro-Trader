@@ -9,7 +9,7 @@ permissions:
 jobs:
   tnk-data:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -17,4 +17,4 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -r requirements.txt
       - name: TNK 180d trade-by-trade MFE MAE range check
-        run: python -u research/tnk/check_legacy_1m_free.py
+        run: python -u research/tnk/bot2_two_coin_variants.py
