@@ -253,7 +253,28 @@ class Bot2Regression(unittest.TestCase):
             self.assertIsNotNone(db.get(m["bar"],("TNKUSDT",900000)))
             self.assertEqual(db.get(m["coin"],"TNKUSDT").last_decision_end,123456000)
 
-    def test_09_book_notional_and_spread(self):
+    def test_09_preview_cannot_reset_or_close_shared_database(self):
+        self._open("TNKUSDT")
+        with mock.patch.dict(os.environ, {"VERCEL_ENV": "preview",
+                                           "HKS_RESET_PASSWORD": "example-test-password"}):
+            with mock.patch.object(hks, "owner_logged_in", return_value=True):
+                with hks.app.test_client() as client:
+                    reset=client.post("/api/bot2/reset",
+                        headers={"Origin":"http://localhost"},
+                        json={"password":"example-test-password","confirm":"RESET 1K"})
+                    close=client.post("/api/bot2/position/TNKUSDT/close",
+                        headers={"Origin":"http://localhost"},json={})
+                    self.assertEqual(reset.status_code,403)
+                    self.assertEqual(close.status_code,403)
+                    page=client.get("/bot2").get_data(as_text=True)
+                    self.assertIn("const previewReadOnly=true;",page)
+        with hks.Session() as db:
+            m=self.bot["models"]
+            self.assertIsNotNone(db.get(m["position"],"TNKUSDT"))
+            self.assertEqual(db.get(m["wallet"],1).cash,D("949.950000000000"))
+            self.assertEqual(db.get(hks.Wallet,1).cash,D("1000"))
+
+    def test_10_book_notional_and_spread(self):
 
 
         midprice, qty = b2._buy_quote([(D("0.1"), D("10000"))], D("50"))
