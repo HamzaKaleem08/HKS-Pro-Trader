@@ -8,7 +8,14 @@ import time
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import os
+import tempfile
+from unittest import mock
+TMP=tempfile.TemporaryDirectory()
+os.environ["DATABASE_URL"]="sqlite:///"+TMP.name+"/live_public_smoke.sqlite3"
+os.environ["HKS_BOT2_PAPER_ENABLED"]="0"
 import bot2_spot as b2
+import app as hks
 
 now=int(time.time()*1000)
 rows=[]
@@ -30,4 +37,17 @@ for symbol in b2.COINS:
     rows.append(result)
     print("MEXC_SMOKE "+json.dumps(result,separators=(",",":")),flush=True)
 assert len(rows)==2
+# Exercise the REAL Bot2 scan processing & persistence against public MEXC,
+# but with paper trading hard-disabled. No funds and no exchange order APIs.
+runner=hks.app.extensions["hks_bot2"]
+for symbol in b2.COINS:
+    scan=runner["scan_symbol"](symbol,int(time.time()*1000))
+    assert scan["status"]=="ok",(symbol,scan)
+    print("MEXC_SCAN_E2E "+json.dumps(scan,separators=(",",":")),flush=True)
+with mock.patch.object(hks,"_ensure_automatic_scanner",return_value=None):
+    state=hks.app.test_client().get("/api/bot2/state").json
+assert state["paper_enabled"] is False
+assert {coin["symbol"] for coin in state["coins"]}==set(b2.COINS)
+assert all(coin["price_bid"] is not None for coin in state["coins"])
+assert state["open_positions"]==[]
 print("MEXC_SMOKE_PASS",flush=True)
