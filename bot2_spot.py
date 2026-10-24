@@ -527,8 +527,18 @@ def install_bot2(app, *, Session, engine, Base, db_postgres,
                             else 202 if status in ("busy", "skipped")
                             else 503)
 
+    def _preview_write_guard():
+        # Vercel preview and production can share the same PostgreSQL URL.
+        # Never let a visual review change the real paper wallet or positions.
+        if os.environ.get("VERCEL_ENV", "").lower() == "preview":
+            return jsonify({"error": "Preview is read-only. Use production after UI approval."}), 403
+        return None
+
     @app.post("/api/bot2/position/<symbol>/close")
     def bot2_manual_close(symbol):
+        preview_deny = _preview_write_guard()
+        if preview_deny is not None:
+            return preview_deny
         same_origin_post()
         denied = require_owner()
         if denied is not None:
@@ -580,7 +590,9 @@ def install_bot2(app, *, Session, engine, Base, db_postgres,
             trades = db.scalars(select(B2Closed).order_by(B2Closed.id.desc()).limit(limit)).all()
             return jsonify({"trades": [{
                 "id": t.id, "symbol": t.symbol, "score": t.score,
-                "side": "LONG", "mode": "NORMAL",
+                "side": "LONG", "mode": "NORMAL", "original_signal": "LONG",
+                "mfe_usd": _fmt(t.mfe_frac * t.margin, 3),
+                "mae_usd": _fmt(t.mae_frac * t.margin, 3),
                 "entry_ms": t.entry_ms, "exit_ms": t.exit_ms,
                 "duration_ms": max(0, t.exit_ms - t.entry_ms),
                 "entry": _fmt(t.entry_price), "exit": _fmt(t.exit_price),
@@ -608,6 +620,9 @@ def install_bot2(app, *, Session, engine, Base, db_postgres,
     @app.post("/api/bot2/reset")
     def bot2_reset():
         """Owner-authorized Bot 2 ONLY reset. No Bot 1 tables are modified."""
+        preview_deny = _preview_write_guard()
+        if preview_deny is not None:
+            return preview_deny
         same_origin_post()
         denial = require_owner()
         if denial is not None:
@@ -699,7 +714,9 @@ def install_bot2(app, *, Session, engine, Base, db_postgres,
                 "unrealized_gross": _fmt(unreal, 4),
                 "open_positions": active, "wins": count_wins, "losses": count_losses,
                 "recent": [{"id": t.id, "symbol": t.symbol, "side": "LONG",
-                    "mode": "NORMAL", "score": t.score,
+                    "mode": "NORMAL", "score": t.score, "original_signal": "LONG",
+                    "mfe_usd": _fmt(t.mfe_frac * t.margin, 3),
+                    "mae_usd": _fmt(t.mae_frac * t.margin, 3),
                     "entry": _fmt(t.entry_price), "exit": _fmt(t.exit_price),
                     "entry_ms": t.entry_ms, "exit_ms": t.exit_ms,
                     "duration_ms": max(0, t.exit_ms - t.entry_ms),
@@ -734,6 +751,7 @@ def install_bot2(app, *, Session, engine, Base, db_postgres,
     def bot2_page():
         return render_template("bot2.html",
                                reset_ready=len(os.environ.get("HKS_RESET_PASSWORD", "")) >= 6,
+                               preview_readonly=os.environ.get("VERCEL_ENV", "").lower() == "preview",
                                sqlite_mode=not db_postgres)
 
     app.extensions["hks_bot2"] = {
