@@ -1,0 +1,21 @@
+name: HKS Production Read-Only Smoke
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app.py'
+      - 'bot2_spot.py'
+      - 'templates/bot2.html'
+      - 'tests/prod_bot2_smoke.py'
+      - '.github/workflows/bot2-production-smoke.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  deployed-site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Vercel production endpoints (read only; no wallet changes)
+        run: python tests/prod_bot2_smoke.py
