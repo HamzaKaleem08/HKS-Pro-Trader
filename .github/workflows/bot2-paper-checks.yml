@@ -7,6 +7,7 @@ on:
       - 'templates/bot2.html'
       - 'tests/test_bot2_spot.py'
       - 'tests/test_bot2_dashboard_js.py'
+      - 'tests/bot2_mexc_public_smoke.py'
       - '.github/workflows/bot2-paper-checks.yml'
   workflow_dispatch:
 permissions:
@@ -25,3 +26,6 @@ jobs:
         run: python -m py_compile app.py bot2_spot.py tests/test_bot2_spot.py
       - name: Test Bot 2 isolated wallet, original trailing, 2 coins, auth
         run: python -m unittest discover -s tests -p 'test_bot2*.py' -v
+      - name: Real MEXC Spot public OHLC/depth smoke (nonblocking)
+        continue-on-error: true
+        run: python tests/bot2_mexc_public_smoke.py
