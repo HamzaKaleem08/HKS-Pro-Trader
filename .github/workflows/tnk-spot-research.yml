@@ -17,4 +17,4 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -r requirements.txt
       - name: TNK 180d trade-by-trade MFE MAE range check
-        run: python -u research/tnk/bot2_180d_two_coin_signal_audit.py
+        run: python -u research/tnk/bot2_public_spot_depth_probe.py
