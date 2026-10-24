@@ -14,7 +14,10 @@ class Bot2DashboardJavaScript(unittest.TestCase):
             f.write(snippets[0]);f.flush()
             result=subprocess.run(["node","--check",f.name],capture_output=True,text=True)
             self.assertEqual(result.returncode,0,result.stderr)
-        self.assertIn("manualClose",snippets[0])
+        self.assertIn("doManualClose",snippets[0])
+        self.assertIn("renderChart",snippets[0])
+        self.assertIn("selectEquityPoints",snippets[0])
+        self.assertIn("setEquityRange",snippets[0])
         self.assertIn("TNK",html)
         self.assertIn("CYS",html)
 if __name__=="__main__":
