@@ -500,19 +500,31 @@ def install_bot2(app, *, Session, engine, Base, db_postgres,
     def _bot2_background_on_visit():
         # Protected cron must run request-bound without a competing auto scan.
         # /wake and Bot1 /api/cron remain fully Bot1-owned.
-        if request.path not in ("/api/bot2/cron", "/wake", "/api/cron"):
+        if request.path not in ("/api/bot2/cron", "/bot2/wake", "/wake", "/api/cron"):
             _ensure_loop()
 
+    @app.get("/bot2/wake")
     @app.get("/api/bot2/cron")
     def bot2_cron():
-        denied = require_cron_token()
-        if denied is not None:
-            return denied
+        """Simple external minute cron: public GET, no key or custom header.
+
+        Same request-bound model as Bot 1 /wake. Only this Bot 2 scheduler
+        endpoint is public; owner actions and Bot 1 /api/cron keep their
+        existing protections. The scanner still uses cross-instance locking
+        plus a 40-second database throttle to prevent duplicate paper trades.
+        """
         if not PAPER_ENABLED:
             return jsonify({"status": "disabled", "message":
-                "Set HKS_BOT2_PAPER_ENABLED=1 after reviewing deployment"}), 503
+                "Bot 2 paper mode is not enabled on this deployment"}), 503
         result = scan_once()
-        return jsonify(result), (200 if result["status"] in ("ok", "partial", "busy", "skipped") else 503)
+        status = result["status"]
+        return jsonify({"ok": status == "ok", "scan_status": status,
+                        "scanned": result.get("processed", 0),
+                        "errors": result.get("errors", {}),
+                        "check": "/api/bot2/state"}), (
+                            200 if status == "ok"
+                            else 202 if status in ("busy", "skipped")
+                            else 503)
 
     @app.post("/api/bot2/position/<symbol>/close")
     def bot2_manual_close(symbol):
