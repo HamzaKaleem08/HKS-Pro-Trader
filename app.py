@@ -1,4 +1,4 @@
-"""HKS Pro Trader — stand-alone Replit PAPER-ONLY signal/position dashboard.
+"""HKS Pro Trader — stand-alone Vercel PAPER-ONLY signal/position dashboard.
 
 Original SMC/ATR scoring source: examples/hks_legacy_smc_reverse.py
 from HKS-Pro-Trader, pinned eac066e4... (2026-10-20).
@@ -67,10 +67,10 @@ if raw_db.startswith("postgres://"):
 elif raw_db.startswith("postgresql://"):
     raw_db = "postgresql+psycopg://" + raw_db.removeprefix("postgresql://")
 if not raw_db:
-    raw_db = "sqlite:///hks_paper_demo.sqlite3"  # local-only; not durable on Autoscale
-    if ON_VERCEL or os.getenv("REPLIT_DEPLOYMENT") or os.getenv("REPLIT_ENVIRONMENT", "").lower() == "production":
+    raw_db = "sqlite:///hks_paper_demo.sqlite3"  # local development only; not durable on serverless
+    if ON_VERCEL:
         raise RuntimeError("Persistent DATABASE_URL required in hosted deployment. Refusing ephemeral SQLite to preserve paper wallet/trades.")
-    LOG.warning("Local SQLite fallback is NOT persistent on Replit Autoscale. Set DATABASE_URL.")
+    LOG.warning("Local SQLite fallback is for development only; hosted Vercel requires DATABASE_URL.")
 DB_POSTGRES = raw_db.startswith("postgresql+")
 engine = create_engine(raw_db, pool_pre_ping=True, future=True,
                        connect_args={} if DB_POSTGRES else {"timeout": 30, "check_same_thread": False})
@@ -160,7 +160,7 @@ class EquityPoint(Base):
 
 
 class ResetGuard(Base):
-    """Persistent rate limit across Replit instances for Reset 1K guesses."""
+    """Persistent rate limit across serverless instances for Reset 1K guesses."""
     __tablename__ = "hks_reset_guard"
     id = Column(Integer, primary_key=True)
     window_start_ms = Column(BigInteger, nullable=False, default=0)
@@ -377,7 +377,7 @@ def market_prices():
 
 
 def record_quote_failure(exc):
-    """Persistent diagnostics across Replit Autoscale workers; never affects wallet."""
+    """Persistent diagnostics across Vercel function invocations; never affects wallet."""
     try:
         with Session.begin() as db:
             h = db.get(QuoteHealth, 1)
@@ -417,7 +417,7 @@ def refresh_live_prices():
     updated = 0
     with Session.begin() as db:
         # The strategy scanner updates the SAME hks_coin records. Never let
-        # independent Replit workers / two-second quote threads write those
+        # independent function invocations / two-second quote threads write those
         # rows concurrently: PostgreSQL row-order inversions caused 40P01
         # deadlocks and a misleading DELAYED / ERRORS scanner status.
         # Missing one ephemeral quote tick is safer than delaying a trade.
@@ -997,7 +997,7 @@ def scan_once():
         _runner_mutex.release()
 
 
-# Replit Autoscale can stop the process when idle; a cron /wake ping can
+# Serverless functions may be suspended between requests; an external cron /wake call can
 # restart it. Both background loops are best-effort while the server is alive.
 # Quotes refresh every ~2 seconds using ONE market-wide endpoint request.
 # Heavy 1m candle accounting / 15m SMC decisions remain minute-boundary only.
@@ -1014,7 +1014,7 @@ def cron_controls_scanning(now_ms=None):
     """Prefer the durable external scheduler when it is actively checking in.
 
     This prevents browser/status/healthcheck-launched auto workers from
-    racing the HTTP /wake scan on different Replit instances.  In the absence
+    racing the HTTP /wake scan on different instances. In the absence
     of a cron heartbeat for >150 seconds, automatic scanning still works on
     a live instance.  NO wallet, order or strategy data are modified here.
     """
@@ -1079,13 +1079,13 @@ def _start_scanner_on_visit():
     # Invalid/unauthenticated cron probes should not launch new scanner loops.
     # A normal dashboard visit starts scanning immediately without a cron hit.
     # /wake now performs a direct, request-bound scan so it does NOT depend on
-    # daemon threads surviving Replit Autoscale suspension. Avoid racing a
+    # daemon threads surviving serverless suspension. Avoid racing a
     # newly spawned background scan against its own cron request.
     if ON_VERCEL:
         # Serverless requests cannot guarantee persistent worker threads. The
         # request-bound /wake endpoint performs background 1m scanning.
         # While the UI is open, its regular /api/state polling refreshes
-        # latest quotes synchronously to replace the Replit daemon loop.
+        # latest quotes synchronously without relying on process-local threads.
         if request.path == "/api/state":
             try:
                 refresh_live_prices()
@@ -1097,7 +1097,7 @@ def _start_scanner_on_visit():
         _ensure_automatic_scanner()
 
 
-# On Replit, dashboard HTTP requests read persisted prices; on Vercel,
+# On a persistent local process, dashboard HTTP reads persisted prices; on Vercel,
 # /api/state refreshes quotes on demand while the browser is open.
 # External /wake remains responsible for closed-minute scan/trading.
 
@@ -1305,7 +1305,7 @@ def reset_wallet():
     if denial is not None:
         return denial
     if len(os.environ.get("HKS_RESET_PASSWORD", "")) < 6:
-        return jsonify({"error": "Reset disabled until HKS_RESET_PASSWORD is set privately in Replit Secrets"}), 503
+        return jsonify({"error": "Reset disabled until HKS_RESET_PASSWORD is configured in Vercel Environment Variables"}), 503
     obj = request.get_json(silent=True) or {}
     if obj.get("confirm") != "RESET 1K":
         return jsonify({"error": "Type RESET 1K to confirm"}), 400
@@ -1554,7 +1554,7 @@ def history():
 @app.get("/healthz")
 def healthz():
     # Lightweight liveness and keep-awake ping. Before-request automatically
-    # starts the scanner loop if a Replit worker has just cold-started.
+    # starts the scanner loop only on a non-serverless local worker.
     # This is not a direct trade command and needs no secret/header.
     with Session() as db:
         db.execute(select(Wallet.id).limit(1)).first()
@@ -1626,9 +1626,9 @@ a{color:var(--blue)}.shell{max-width:1580px;margin:auto;padding:26px clamp(12px,
 </style>
 </head>
 <body><div class="shell">
-<header class="top"><div class="brand"><div class="brandmark"><img src="/static/hks-modern-chart.svg" width="48" height="48" alt="HKS Modern Chart logo"></div><div><div class="brandname">HKS <span class="gold">Pro Trader</span></div><div class="brandline">LIGHTWEIGHT PAPER ENGINE</div></div></div><div class="actions"><button class="btn" id="owner-button" onclick="toggleOwner()">Owner Login</button><span class="pill" id="scanner-pill"><i class="dot"></i><span>Scanner: Checking…</span></span><div class="global-switch" role="group" aria-label="Global strategy mode"><span class="global-label">ALL COINS</span><button type="button" id="global-normal" class="selected" onclick="changeGlobalMode('NORMAL')">Normal</button><button type="button" id="global-reverse" onclick="changeGlobalMode('REVERSE')">Reverse</button></div><button class="btn" id="theme-btn" onclick="toggleTheme()">☼ Light Mode</button><button class="btn" onclick="showHistory()">Trade History</button><button class="btn primary" onclick="openTools()">Tools / Reset 1K</button></div></header>
-{% if sqlite_mode %}<div class="notice">⚠ Running on local SQLite. For Replit Autoscale, configure a persistent PostgreSQL DATABASE_URL before relying on saved trades, wallet or modes.</div>{% endif %}
-{% if not reset_ready %}<div class="notice">⚠ Reset 1K is disabled until HKS_RESET_PASSWORD is stored privately in Replit Secrets.</div>{% endif %}
+<header class="top"><div class="brand"><div class="brandmark"><img src="/static/hks-modern-chart.svg" width="48" height="48" alt="HKS Modern Chart logo"></div><div><div class="brandname">HKS <span class="gold">Pro Trader</span></div><div class="brandline">LIGHTWEIGHT PAPER ENGINE · BOT 1</div></div></div><div class="actions"><button class="btn" id="owner-button" onclick="toggleOwner()">Owner Login</button><a class="btn primary" href="/bot2" style="text-decoration:none">Bot 2 · MEXC Spot ↗</a><span class="pill" id="scanner-pill"><i class="dot"></i><span>Scanner: Checking…</span></span><div class="global-switch" role="group" aria-label="Global strategy mode"><span class="global-label">ALL COINS</span><button type="button" id="global-normal" class="selected" onclick="changeGlobalMode('NORMAL')">Normal</button><button type="button" id="global-reverse" onclick="changeGlobalMode('REVERSE')">Reverse</button></div><button class="btn" id="theme-btn" onclick="toggleTheme()">☼ Light Mode</button><button class="btn" onclick="showHistory()">Trade History</button><button class="btn primary" onclick="openTools()">Tools / Reset 1K</button></div></header>
+{% if sqlite_mode %}<div class="notice">⚠ Running on local SQLite. For Vercel, configure a persistent PostgreSQL DATABASE_URL before relying on saved trades, wallet or modes.</div>{% endif %}
+{% if not reset_ready %}<div class="notice">⚠ Reset 1K is disabled until HKS_RESET_PASSWORD is stored in Vercel Environment Variables.</div>{% endif %}
 <div class="statusline" style="margin:-12px 0 14px">Global Normal/Reverse applies to all new entries. Per-coin custom mode remains available; changing Global mode resets those custom choices. Open positions keep their original direction.</div>
 <div class="stats">
  <div class="stat"><div class="caption">Wallet Balance</div><div class="value" id="balance">$1,000.00</div><div class="statusline">Closed-trade balance · starts at $1,000</div></div>
@@ -1987,6 +1987,14 @@ async function load(){if(refreshing)return;refreshing=true;try{
  }catch(e){el('scanner-pill').innerHTML='<i class="dot fail"></i>Dashboard offline';el('scanner-line').textContent='Dashboard request failed: '+e.message}finally{refreshing=false}}
 renderChart();load();setInterval(load,2000);
 </script></body></html>'''
+
+# Bot 2 is independently implemented in its own module and b2_* tables.
+# Do not change Bot 1 scanner, scoring, wallet, cron, or trade endpoints.
+from bot2_spot import install_bot2
+install_bot2(app, Session=Session, engine=engine, Base=Base, db_postgres=DB_POSTGRES,
+             evaluate_smc=evaluate_smc, trail_stop=trail_stop,
+             get_stop_fill=get_stop_fill, require_cron_token=require_cron_token,
+             require_owner=require_owner, same_origin_post=same_origin_post)
 
 if __name__ == "__main__":
     # python app.py starts the background scanner before Flask accepts traffic.
