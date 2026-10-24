@@ -13,7 +13,7 @@ header{display:flex;justify-content:space-between;align-items:center;flex-wrap:w
 </style></head>
 <body><div class="shell">
 <header><div class="brand"><div class="brandmark"><img src="/static/hks-modern-chart.svg" alt=""></div><div><div class="eyebrow">HKS PRO TRADER</div><div class="brandtitle">Bot 2 <span style="color:var(--gold)">· MEXC Spot</span></div></div></div>
-<nav class="nav" aria-label="HKS bots"><a class="linkbtn" href="/">Bot 1 · Futures ↗</a><a class="linkbtn active" href="/bot2">Bot 2 · Spot</a><span class="pill" id="scanner"><i class="dot"></i>Scanner checking</span></nav>
+<nav class="nav" aria-label="HKS bots"><a class="linkbtn" href="/">Bot 1 · Futures ↗</a><a class="linkbtn active" href="/bot2">Bot 2 · Spot</a><button class="linkbtn" type="button" id="ownerbtn" onclick="toggleOwner()">Owner Login</button><span class="pill" id="scanner"><i class="dot"></i>Scanner checking</span></nav>
 </header>
 <div class="headline">Spot paper trading dashboard</div>
 <div class="subline">1 independent Bot 2 scanning both <strong>TNKUSDT</strong> and <strong>CYSUSDT</strong>. LONG only · Original 15m SMC score ≥85 · 200% initial ATR stop · Original trailing untouched.</div>
@@ -47,7 +47,7 @@ header{display:flex;justify-content:space-between;align-items:center;flex-wrap:w
 </div>
 <section class="panel full">
  <div class="heading">Open Bot 2 Positions <span class="small muted" id="positionsmeta">0 active</span></div>
- <div class="tablewrap"><table><thead><tr><th>Coin</th><th>Side</th><th>Entry</th><th>Current stop</th><th>Position value</th><th>Unrealized PnL</th><th>MFE</th><th>MAE</th></tr></thead><tbody id="positions"><tr><td colspan="8" class="empty">No open paper positions</td></tr></tbody></table></div>
+ <div class="tablewrap"><table><thead><tr><th>Coin</th><th>Side</th><th>Entry</th><th>Current stop</th><th>Position value</th><th>Unrealized PnL</th><th>MFE</th><th>MAE</th><th>Action</th></tr></thead><tbody id="positions"><tr><td colspan="9" class="empty">No open paper positions</td></tr></tbody></table></div>
 </section>
 <div class="grid">
  <section class="panel"><div class="heading">Bot 2 Realized Equity <span class="small muted">Separate from Bot 1</span></div><svg id="equity" class="chart" viewBox="0 0 750 165" preserveAspectRatio="none" aria-label="Bot 2 wallet realized closed-trade equity chart"></svg><div class="foot">Realized balance from saved closed trades; no fabricated equity history.</div></section>
@@ -61,6 +61,11 @@ header{display:flex;justify-content:space-between;align-items:center;flex-wrap:w
 </div>
 <script>
 const el=id=>document.getElementById(id);
+let owner=false;const closing=new Set();
+async function ownerStatus(){try{const r=await fetch("/api/owner/status",{cache:"no-store"});owner=r.ok&&Boolean((await r.json()).owner)}catch(_){owner=false}el("ownerbtn").textContent=owner?"Owner · Logout":"Owner Login"}
+async function toggleOwner(){try{if(owner){await fetch("/api/owner/logout",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});owner=false}else{const password=window.prompt("HKS Owner password (shared with Bot 1):");if(password===null)return;const r=await fetch("/api/owner/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password})});const d=await r.json();if(!r.ok)throw Error(d.error||"Owner login failed");owner=true}await ownerStatus();await load()}catch(e){window.alert(e.message)}}
+async function manualClose(symbol){if(!owner||closing.has(symbol))return;if(!window.confirm("Close Bot 2 "+symbol+" PAPER position at current MEXC bid depth?"))return;closing.add(symbol);try{const r=await fetch("/api/bot2/position/"+encodeURIComponent(symbol)+"/close",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});const d=await r.json();if(!r.ok)throw Error(d.error||("HTTP "+r.status));await load();window.alert(symbol+" closed (paper) at "+d.exit_price+"; net PnL "+d.net_pnl)}catch(e){window.alert(e.message)}finally{closing.delete(symbol)}}
+
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const cash=(v,d=2)=>v==null?'—':(Number(v)<0?'−':'')+'$'+Math.abs(Number(v)).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
 const price=v=>v==null?'—':Number(v).toLocaleString('en-US',{maximumFractionDigits:8,minimumFractionDigits:5});
@@ -86,11 +91,12 @@ async function load(){
  el('coins').innerHTML=d.coins.map(c=>'<div class="coin"><div class="coin-title"><span>'+esc(c.symbol)+'</span><span class="coin-label">'+(c.open?'OPEN LONG':'WATCHING')+'</span></div><div class="coin-price">'+price(c.price_bid)+'</div><div class="coin-meta">SMC Score: <span class="score">'+esc(c.trade_score)+'</span> / 85<br>Signal: '+esc(c.signal)+'<br>Quote: '+(c.quote_stale?'STALE':'fresh')+' · '+time(c.updated)+(c.error?'<br><span class="negative">'+esc(c.error)+'</span>':'')+'</div><a class="small" href="https://www.tradingview.com/chart/?symbol='+encodeURIComponent('MEXC:'+c.symbol)+'" rel="noopener noreferrer" target="_blank">View MEXC chart ↗</a></div>').join('');
  const state=d.scanner.status;el('scanner').innerHTML='<i class="dot '+(state==='OK'?'ok':state==='ERROR'||state==='OFFLINE'?'bad':'warn')+'"></i>'+esc(state);
  el('lastscan').textContent=time(d.scanner.last_success);el('lastattempt').textContent=time(d.scanner.last_attempt);el('processed').textContent=d.scanner.processed+'/2 coins';el('scanerror').textContent=d.scanner.error||'Each coin error is isolated; failed data never create artificial candles.';
- const pbody=el('positions');pbody.innerHTML=d.open_positions.length?d.open_positions.map(p=>'<tr><td><strong>'+esc(p.symbol)+'</strong></td><td>LONG</td><td>'+price(p.entry)+'</td><td>'+price(p.stop)+'</td><td>'+cash(p.notional,2)+'</td><td class="'+signed(p.pnl_gross)+'">'+cash(p.pnl_gross,3)+'</td><td>'+esc(p.mfe_pct)+'%</td><td>'+esc(p.mae_pct)+'%</td></tr>').join(''):'<tr><td colspan="8" class="empty">No open paper positions</td></tr>';
+ const pbody=el('positions');pbody.innerHTML=d.open_positions.length?d.open_positions.map(p=>'<tr><td><strong>'+esc(p.symbol)+'</strong></td><td>LONG</td><td>'+price(p.entry)+'</td><td>'+price(p.stop)+'</td><td>'+cash(p.notional,2)+'</td><td class="'+signed(p.pnl_gross)+'">'+cash(p.pnl_gross,3)+'</td><td>'+esc(p.mfe_pct)+'%</td><td>'+esc(p.mae_pct)+'%</td><td><button class="linkbtn" type="button" data-close="'+esc(p.symbol)+'">Close paper</button></td></tr>').join(''):'<tr><td colspan="9" class="empty">No open paper positions</td></tr>';
  el('positionsmeta').textContent=d.open_positions.length+' active';
+ el('positions').querySelectorAll('button[data-close]').forEach(b=>{b.disabled=!owner||closing.has(b.dataset.close);b.onclick=()=>manualClose(b.dataset.close)});
  el('history').innerHTML=d.recent.length?d.recent.map(t=>'<tr><td>'+esc(t.symbol)+'</td><td>'+esc(t.score)+'</td><td>'+time(t.entry_ms)+'</td><td>'+time(t.exit_ms)+'</td><td>'+price(t.entry)+'</td><td>'+price(t.exit)+'</td><td>'+esc(t.reason)+'</td><td>'+cash(t.fees,3)+'</td><td class="'+signed(t.pnl)+'">'+cash(t.pnl,3)+'</td></tr>').join(''):'<tr><td colspan="9" class="empty">No closed trades yet</td></tr>';
  equityChart(d.equity_history);
  }catch(e){el('error').textContent='Bot 2 state unavailable: '+e.message;el('scanner').innerHTML='<i class="dot bad"></i>OFFLINE'}
 }
-load();setInterval(load,4000);
+ownerStatus().then(load);setInterval(load,4000);
 </script></body></html>
