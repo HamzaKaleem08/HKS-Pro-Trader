@@ -1626,7 +1626,7 @@ a{color:var(--blue)}.shell{max-width:1580px;margin:auto;padding:26px clamp(12px,
 </style>
 </head>
 <body><div class="shell">
-<header class="top"><div class="brand"><div class="brandmark"><img src="/static/hks-modern-chart.svg" width="48" height="48" alt="HKS Modern Chart logo"></div><div><div class="brandname">HKS <span class="gold">Pro Trader</span></div><div class="brandline">LIGHTWEIGHT PAPER ENGINE</div></div></div><div class="actions"><button class="btn" id="owner-button" onclick="toggleOwner()">Owner Login</button><span class="pill" id="scanner-pill"><i class="dot"></i><span>Scanner: Checking…</span></span><div class="global-switch" role="group" aria-label="Global strategy mode"><span class="global-label">ALL COINS</span><button type="button" id="global-normal" class="selected" onclick="changeGlobalMode('NORMAL')">Normal</button><button type="button" id="global-reverse" onclick="changeGlobalMode('REVERSE')">Reverse</button></div><button class="btn" id="theme-btn" onclick="toggleTheme()">☼ Light Mode</button><button class="btn" onclick="showHistory()">Trade History</button><button class="btn primary" onclick="openTools()">Tools / Reset 1K</button></div></header>
+<header class="top"><div class="brand"><div class="brandmark"><img src="/static/hks-modern-chart.svg" width="48" height="48" alt="HKS Modern Chart logo"></div><div><div class="brandname">HKS <span class="gold">Pro Trader</span></div><div class="brandline">LIGHTWEIGHT PAPER ENGINE · BOT 1</div></div></div><div class="actions"><button class="btn" id="owner-button" onclick="toggleOwner()">Owner Login</button><a class="btn primary" href="/bot2" style="text-decoration:none">Bot 2 · MEXC Spot ↗</a><span class="pill" id="scanner-pill"><i class="dot"></i><span>Scanner: Checking…</span></span><div class="global-switch" role="group" aria-label="Global strategy mode"><span class="global-label">ALL COINS</span><button type="button" id="global-normal" class="selected" onclick="changeGlobalMode('NORMAL')">Normal</button><button type="button" id="global-reverse" onclick="changeGlobalMode('REVERSE')">Reverse</button></div><button class="btn" id="theme-btn" onclick="toggleTheme()">☼ Light Mode</button><button class="btn" onclick="showHistory()">Trade History</button><button class="btn primary" onclick="openTools()">Tools / Reset 1K</button></div></header>
 {% if sqlite_mode %}<div class="notice">⚠ Running on local SQLite. For Replit Autoscale, configure a persistent PostgreSQL DATABASE_URL before relying on saved trades, wallet or modes.</div>{% endif %}
 {% if not reset_ready %}<div class="notice">⚠ Reset 1K is disabled until HKS_RESET_PASSWORD is stored privately in Replit Secrets.</div>{% endif %}
 <div class="statusline" style="margin:-12px 0 14px">Global Normal/Reverse applies to all new entries. Per-coin custom mode remains available; changing Global mode resets those custom choices. Open positions keep their original direction.</div>
@@ -1987,6 +1987,14 @@ async function load(){if(refreshing)return;refreshing=true;try{
  }catch(e){el('scanner-pill').innerHTML='<i class="dot fail"></i>Dashboard offline';el('scanner-line').textContent='Dashboard request failed: '+e.message}finally{refreshing=false}}
 renderChart();load();setInterval(load,2000);
 </script></body></html>'''
+
+# Bot 2 is independently implemented in its own module and b2_* tables.
+# Do not change Bot 1 scanner, scoring, wallet, cron, or trade endpoints.
+from bot2_spot import install_bot2
+install_bot2(app, Session=Session, engine=engine, Base=Base, db_postgres=DB_POSTGRES,
+             evaluate_smc=evaluate_smc, trail_stop=trail_stop,
+             get_stop_fill=get_stop_fill, require_cron_token=require_cron_token,
+             require_owner=require_owner, same_origin_post=same_origin_post)
 
 if __name__ == "__main__":
     # python app.py starts the background scanner before Flask accepts traffic.
