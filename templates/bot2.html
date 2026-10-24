@@ -100,6 +100,29 @@ function renderChart(){
  setTimeout(()=>{if(!parent.contains(holder)){observer.disconnect();return}if(!ready){msg.textContent='Chart not available in this browser. Open TradingView directly below.';observer.disconnect()}},12000);
 }
 const coinNodes=new Map();
+const verifiedCoinIds={TNKUSDT:'trac-network',CYSUSDT:'cysic'};
+const verifiedCoinLogoUrls=new Map();
+let logoLookupStarted=false;
+async function loadVerifiedCoinLogos(){
+ if(logoLookupStarted)return;
+ logoLookupStarted=true;
+ // These are identified project IDs, not guesses based on ticker initials.
+ // Logo retrieval is optional UI enrichment: no effect on scanning or trades.
+ await Promise.all(Object.entries(verifiedCoinIds).map(async ([symbol,id])=>{
+  try{
+   const endpoint='https://api.coingecko.com/api/v3/coins/'+encodeURIComponent(id)+'?localization=false&tickers=false&market_data=false&community_data=false&developer_data=false';
+   const response=await fetch(endpoint,{cache:'force-cache'});
+   if(!response.ok)return;
+   const data=await response.json();
+   if(data?.id!==id||String(data.symbol||'').toUpperCase()!==symbol.slice(0,-4))return;
+   const url=data.image?.small||data.image?.thumb;
+   if(typeof url!=='string'||!url.startsWith('https://'))return;
+   verifiedCoinLogoUrls.set(symbol,url);
+   const card=coinNodes.get(symbol);
+   if(card){const img=card.querySelector('.coin-logo');if(img)img.src=url;}
+  }catch(_){/* Optional logo unavailable; original single-letter fallback remains. */}
+ }));
+}
 function renderCoins(){
  const q=el('coin-search').value.toUpperCase().trim();const shown=coinData.filter(c=>c.symbol.includes(q));const grid=el('coin-grid');
  const keep=new Set(shown.map(x=>x.symbol));grid.querySelectorAll(':scope > .empty').forEach(n=>n.remove());
@@ -111,7 +134,7 @@ function renderCoins(){
    if(!card){card=document.createElement('article');card.className='coin';card.dataset.symbol=c.symbol;
     card.innerHTML='<div class="coin-top"><img class="coin-logo" alt="" hidden><div class="fallback">'+escapeHTML(base[0])+'</div><div><div class="coin-name">'+escapeHTML(base)+'</div><div class="coin-tag"></div></div><div class="coin-price"><span class="price-text"></span><div class="coin-change"></div></div></div><div class="coin-score"><div><span class="caption">Score</span> <span class="score"></span><span class="small muted"> / 100</span></div><div class="mode-switch"><button type="button" disabled>LONG</button></div></div><div class="coin-error" hidden></div>';
     card.onclick=()=>selectCoin(c.symbol);coinNodes.set(c.symbol,card);
-    const img=card.querySelector('.coin-logo');const fallback=card.querySelector('.fallback');img.onload=()=>{img.hidden=false;fallback.hidden=true};img.onerror=()=>{img.hidden=true;fallback.hidden=false};img.src='https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@0.18.1/128/color/'+encodeURIComponent(base.toLowerCase())+'.png';
+    const img=card.querySelector('.coin-logo');const fallback=card.querySelector('.fallback');img.onload=()=>{img.hidden=false;fallback.hidden=true};img.onerror=()=>{img.hidden=true;fallback.hidden=false};img.src=verifiedCoinLogoUrls.get(c.symbol)||('https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@0.18.1/128/color/'+encodeURIComponent(base.toLowerCase())+'.png');
    }
    card.classList.toggle('active',selected===c.symbol);
    card.querySelector('.coin-tag').textContent=c.open?'● Open trade':'USDT · #'+(coinData.indexOf(c)+1);
@@ -264,6 +287,6 @@ async function load(){
   updateOwnerUI();
  }catch(e){el('scanner-pill').innerHTML='<i class="dot fail"></i>Dashboard offline';el('scanner-line').textContent='Dashboard request failed: '+e.message}finally{refreshing=false}
 }
-initTheme();refreshOwnerStatus();renderChart();load();setInterval(load,2500);
+initTheme();refreshOwnerStatus();renderChart();load();loadVerifiedCoinLogos();setInterval(load,2500);
 
 </script></body></html>
