@@ -30,8 +30,8 @@ for m in ("NORMAL","REVERSE"):
     assert v.status_code==200,v.get_data(as_text=True)
     j=v.get_json()
     assert j["parallel"] and j["view_mode"]==m
-    assert j["balance"]=="1000.0000"
-    assert j["available_cash"]=="2000.0000"
+    assert D(str(j["balance"]))==D("1000")
+    assert D(str(j["available_cash"]))==D("2000")
     assert len(j["equity_points"])==1
     assert len(j["mode_equity_points"][m])==1
 
