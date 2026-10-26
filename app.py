@@ -1328,6 +1328,8 @@ def set_global_mode():
     denial = require_owner()
     if denial is not None:
         return denial
+    if BOT1_PARALLEL_ENABLED:
+        return jsonify({"error": "Both modes run in parallel; global switching disabled"}), 409
     obj = request.get_json(silent=True) or {}
     mode = str(obj.get("mode", "")).upper()
     if mode not in {"NORMAL", "REVERSE"}:
@@ -1355,6 +1357,8 @@ def set_mode(symbol):
     denial = require_owner()
     if denial is not None:
         return denial
+    if BOT1_PARALLEL_ENABLED:
+        return jsonify({"error": "Both directions are always active"}), 409
     if not SYMBOL_RE.fullmatch(symbol):
         abort(400)
     mode = str((request.get_json(silent=True) or {}).get("mode", "")).upper()
@@ -1377,8 +1381,9 @@ def reset_wallet():
     if len(os.environ.get("HKS_RESET_PASSWORD", "")) < 6:
         return jsonify({"error": "Reset disabled until HKS_RESET_PASSWORD is configured in Vercel Environment Variables"}), 503
     obj = request.get_json(silent=True) or {}
-    if obj.get("confirm") != "RESET 1K":
-        return jsonify({"error": "Type RESET 1K to confirm"}), 400
+    confirm_text = "RESET BOTH" if BOT1_PARALLEL_ENABLED else "RESET 1K"
+    if obj.get("confirm") != confirm_text:
+        return jsonify({"error": "Type " + confirm_text + " to confirm"}), 400
     allowed, error, status = check_reset_attempt(obj.get("password", ""))
     if not allowed:
         return jsonify({"error": error}), status
@@ -1392,6 +1397,8 @@ def reset_wallet():
                 return jsonify({"error": "Scanner running on another instance"}), 409
         with Session.begin() as db:
             coin_write_lock(db)
+            if BOT1_PARALLEL_ENABLED:
+                b1_reset_parallel(db, utc_ms())
             db.execute(delete(EquityPoint))
             db.execute(delete(ClosedTrade))
             db.execute(delete(Position))
@@ -1424,6 +1431,9 @@ def manual_close_position(symbol):
         return denial
     if not SYMBOL_RE.fullmatch(symbol):
         abort(400)
+    mode = str((request.get_json(silent=True) or {}).get("mode", "NORMAL")).upper()
+    if BOT1_PARALLEL_ENABLED and mode not in B1_MODES:
+        return jsonify({"error": "Mode must be NORMAL or REVERSE"}), 400
     if not _runner_mutex.acquire(blocking=False):
         return jsonify({"error": "Scanner busy; retry after current scan"}), 409
     pg_lock = None
@@ -1433,7 +1443,7 @@ def manual_close_position(symbol):
             if pg_lock is None:
                 return jsonify({"error": "Scanner active on another instance; retry shortly"}), 409
         with Session() as db:
-            if db.get(Position, symbol) is None:
+            if (db.get(ModePosition, (mode, symbol)) if BOT1_PARALLEL_ENABLED else db.get(Position, symbol)) is None:
                 return jsonify({"error": "This position is no longer open"}), 409
         # Retrieve a fresh, real exchange quote. Cached dashboard prices are
         # intentionally NOT used to create a potentially stale paper fill.
@@ -1452,16 +1462,17 @@ def manual_close_position(symbol):
         closed_at = utc_ms()
         with Session.begin() as db:
             coin_write_lock(db)
-            pos = db.get(Position, symbol)
+            pos = (db.get(ModePosition, (mode, symbol)) if BOT1_PARALLEL_ENABLED else db.get(Position, symbol))
             if pos is None:
                 return jsonify({"error": "Position already closed; no change made"}), 409
             # Include this confirmed mark in the directional excursion estimates.
             mark_excursion(pos, {"h": fill, "l": fill})
-            trade = close_position(db, pos, fill, closed_at, "MANUAL CLOSE")
+            trade = (b1_close_position(db, pos, fill, closed_at, "MANUAL CLOSE", FEE_RATE)
+                     if BOT1_PARALLEL_ENABLED else close_position(db, pos, fill, closed_at, "MANUAL CLOSE"))
             trade_id = trade.id
             net = fmt(trade.net_pnl, 4)
         LOG.info("Owner closed paper position %s manually; trade id %s", symbol, trade_id)
-        return jsonify({"ok": True, "symbol": symbol, "trade_id": trade_id,
+        return jsonify({"ok": True, "symbol": symbol, "mode": mode, "trade_id": trade_id,
                         "reason": "MANUAL CLOSE", "exit_price": fmt(fill),
                         "net_pnl": net, "price_source": source})
     finally:
