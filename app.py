@@ -27,6 +27,14 @@ from flask import Flask, abort, jsonify, render_template_string, request
 from sqlalchemy import (BigInteger, Column, DateTime, ForeignKey, Integer, Numeric, String,
                         Text, create_engine, delete, func, select, text)
 from sqlalchemy.orm import declarative_base, sessionmaker
+from bot1_parallel import (
+    MODES as B1_MODES, ModeWallet, ModePosition, ModeTrade, ModeEquity,
+    ModeExit, ModeDecision, bootstrap as b1_bootstrap,
+    mode_positions as b1_mode_positions, realized_equity as b1_realized_equity,
+    strategy_equity as b1_strategy_equity, open_pair as b1_open_pair,
+    check_position as b1_check_position, close_position as b1_close_position,
+    reset_parallel as b1_reset_parallel,
+)
 
 LOG = logging.getLogger("hks")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -35,6 +43,8 @@ D = Decimal
 ZERO = D("0")
 ONE = D("1")
 START_BALANCE = D("1000")
+# Explicitly gated until owner saves old-history screenshots and approves cutover.
+BOT1_PARALLEL_ENABLED = os.getenv("HKS_BOT1_PARALLEL_ENABLED", "0").lower() in ("1", "true")
 RISK_FRACTION = D("0.01")
 MAX_POSITIONS = 5
 # Conservative 1x collateral model. Never silently enable leverage.
@@ -249,6 +259,11 @@ with Session.begin() as db:
         db.add(QuoteHealth(id=1, consecutive_failures=0))
     if db.get(CronHealth, 1) is None:
         db.add(CronHealth(id=1, last_scan_status="NOT STARTED"))
+
+# Isolated b1_* tables are never initialized unless the feature is enabled.
+# No legacy financial rows are modified by initialization.
+if BOT1_PARALLEL_ENABLED:
+    b1_bootstrap(engine, Session, int(time.time() * 1000))
 
 
 class PriceError(Exception):
@@ -772,7 +787,9 @@ def scan_once():
             previous = status.market_symbols.split(",") if status.market_symbols else []
             refresh = not previous or not status.last_market_refresh_ms or now_ms - status.last_market_refresh_ms > REFRESH_MARKETS_MS
             known = {c.symbol: c for c in db.scalars(select(Coin)).all()}
-            holdings = {p.symbol for p in db.scalars(select(Position)).all()}
+            holdings = ({p.symbol for p in db.scalars(select(ModePosition)).all()}
+                        if BOT1_PARALLEL_ENABLED else
+                        {p.symbol for p in db.scalars(select(Position)).all()})
         tickers = market_tickers()
         if refresh:
             top = [s for s, _ in sorted(tickers.items(), key=lambda x: x[1]["volume"], reverse=True)[:SYMBOL_COUNT]]
@@ -833,7 +850,9 @@ def scan_once():
             with Session.begin() as db:
                 coin_write_lock(db)
                 db_coins = {c.symbol: c for c in db.scalars(select(Coin)).all()}
-                db_positions = {p.symbol: p for p in db.scalars(select(Position)).all()}
+                db_positions = ({(p.mode, p.symbol): p for p in db.scalars(select(ModePosition)).all()}
+                                if BOT1_PARALLEL_ENABLED else
+                                {p.symbol: p for p in db.scalars(select(Position)).all()})
                 saved_global = db.get(GlobalMode, 1)
                 default_mode = saved_global.mode if saved_global else "NORMAL"
                 for symbol in symbols:
@@ -859,7 +878,8 @@ def scan_once():
                     last_bar = bars[-1]
                     old_end = coin.last_bar_end
                     if old_end and last_bar["end"] - old_end > 199 * 60_000:
-                        if symbol in db_positions:
+                        if (any(p.symbol == symbol for p in db_positions.values())
+                                if BOT1_PARALLEL_ENABLED else symbol in db_positions):
                             coin.error = "SCANNER GAP >199m with OPEN POSITION: manual review required; trading paused"
                             coin.signal = "PAUSED"
                             errors[symbol] = coin.error
@@ -871,15 +891,28 @@ def scan_once():
                     if old_end and future_bars and future_bars[0]["t"] != old_end:
                         raise PriceError("1m history gap: position unchanged")
 
-                    pos = db_positions.get(symbol)
                     trail_moved = False
-                    if pos is not None and future_bars:
-                        prior_stop = pos.stop
-                        closed = check_position(db, pos, future_bars)
-                        if closed is not None:
-                            db_positions.pop(symbol, None)
-                        else:
-                            trail_moved = pos.stop != prior_stop
+                    if BOT1_PARALLEL_ENABLED:
+                        for mode in B1_MODES:
+                            pos = db_positions.get((mode, symbol))
+                            if pos is not None and future_bars:
+                                old_stop = pos.stop
+                                closed = b1_check_position(
+                                    db, pos, future_bars, FEE_RATE,
+                                    mark_excursion, get_stop_fill, trail_stop)
+                                if closed is not None:
+                                    db_positions.pop((mode, symbol), None)
+                                else:
+                                    trail_moved |= pos.stop != old_stop
+                    else:
+                        pos = db_positions.get(symbol)
+                        if pos is not None and future_bars:
+                            prior_stop = pos.stop
+                            closed = check_position(db, pos, future_bars)
+                            if closed is not None:
+                                db_positions.pop(symbol, None)
+                            else:
+                                trail_moved = pos.stop != prior_stop
 
                     coin.last_bar_end = last_bar["end"]
                     coin.updated_ms = now_ms
@@ -890,18 +923,33 @@ def scan_once():
                         coin.trade_score = evaluation["trade_score"]
                         coin.signal = "WATCH" if evaluation["original"] else "NO SWEEP"
                         coin.last_decision_end = last_bar["end"]
-                        pos = db_positions.get(symbol)
-                        if (pos is None and symbol in top and evaluation["original"]
-                                and evaluation["trade_score"] >= 75
-                                and coin.last_exit_15m_end != last_bar["end"]):
-                            quote = tickers[symbol]["price"] if symbol in tickers else last_bar["c"]
-                            opened = open_position(db, coin, evaluation["original"],
-                                                   evaluation["trade_score"],
-                                                   evaluation["stop_fraction"], quote, now_ms)
-                            if opened:
-                                db_positions[symbol] = opened
-                                LOG.info("Paper entry %s / %s / %s", symbol, coin.mode, coin.signal)
-                    if trail_moved and symbol in db_positions:
+                        if BOT1_PARALLEL_ENABLED:
+                            if (symbol in top and evaluation["original"]
+                                    and evaluation["trade_score"] >= 75):
+                                quote = tickers[symbol]["price"] if symbol in tickers else last_bar["c"]
+                                paired = b1_open_pair(
+                                    db, coin, dict(evaluation, end_ms=last_bar["end"]),
+                                    quote, now_ms, FEE_RATE, RISK_FRACTION,
+                                    MAX_POSITION_CASH_FRACTION, MAX_POSITIONS)
+                                for mode, (new_pos, status) in paired.items():
+                                    if new_pos is not None:
+                                        db_positions[(mode, symbol)] = new_pos
+                                    LOG.info("Bot1 %s %s %s: %s", symbol, mode,
+                                             evaluation["original"], status)
+                                coin.signal = "PAIR " + evaluation["original"]
+                        else:
+                            pos = db_positions.get(symbol)
+                            if (pos is None and symbol in top and evaluation["original"]
+                                    and evaluation["trade_score"] >= 75
+                                    and coin.last_exit_15m_end != last_bar["end"]):
+                                quote = tickers[symbol]["price"] if symbol in tickers else last_bar["c"]
+                                opened = open_position(db, coin, evaluation["original"],
+                                                       evaluation["trade_score"],
+                                                       evaluation["stop_fraction"], quote, now_ms)
+                                if opened:
+                                    db_positions[symbol] = opened
+                                    LOG.info("Paper entry %s / %s / %s", symbol, coin.mode, coin.signal)
+                    if trail_moved:
                         coin.signal = "TRAILING"
                     processed += 1
         except Exception:
@@ -930,7 +978,8 @@ def scan_once():
                         old_end = coin.last_bar_end
                         # Never fabricate missing history when a scanner was offline >200 minutes.
                         if old_end and last_bar["end"] - old_end > 199 * 60_000:
-                            if db.get(Position, symbol) is not None:
+                            if (db.scalar(select(ModePosition.symbol).where(ModePosition.symbol == symbol).limit(1))
+                                    if BOT1_PARALLEL_ENABLED else db.get(Position, symbol)) is not None:
                                 coin.error = "SCANNER GAP >199m with OPEN POSITION: manual review required; trading paused"
                                 coin.signal = "PAUSED"
                                 errors[symbol] = coin.error
@@ -943,12 +992,22 @@ def scan_once():
                         future_bars = [b for b in bars if not old_end or b["end"] > old_end]
                         if old_end and future_bars and future_bars[0]["t"] != old_end:
                             raise PriceError("1m history gap: position unchanged")
-                        pos = db.get(Position, symbol)
                         trail_moved = False
-                        if pos is not None and future_bars:
-                            prior_stop = pos.stop
-                            check_position(db, pos, future_bars)
-                            trail_moved = (db.get(Position, symbol) is not None and pos.stop != prior_stop)
+                        if BOT1_PARALLEL_ENABLED:
+                            for mode in B1_MODES:
+                                pos = db.get(ModePosition, (mode, symbol))
+                                if pos is not None and future_bars:
+                                    old_stop = pos.stop
+                                    closed = b1_check_position(
+                                        db, pos, future_bars, FEE_RATE,
+                                        mark_excursion, get_stop_fill, trail_stop)
+                                    trail_moved |= (closed is None and pos.stop != old_stop)
+                        else:
+                            pos = db.get(Position, symbol)
+                            if pos is not None and future_bars:
+                                prior_stop = pos.stop
+                                check_position(db, pos, future_bars)
+                                trail_moved = (db.get(Position, symbol) is not None and pos.stop != prior_stop)
                         coin.last_bar_end = last_bar["end"]
                         coin.updated_ms = now_ms
                         if last_bar["end"] % 900000 == 0 and "quarter" in data and "hour" in data and coin.last_decision_end != last_bar["end"]:
@@ -957,14 +1016,25 @@ def scan_once():
                             coin.trade_score = evaluation["trade_score"]
                             coin.signal = "WATCH" if evaluation["original"] else "NO SWEEP"
                             coin.last_decision_end = last_bar["end"]
-                            pos = db.get(Position, symbol)
-                            if pos is None and (symbol in top and evaluation["original"] and evaluation["trade_score"] >= 75
-                                                and coin.last_exit_15m_end != last_bar["end"]):
-                                quote = tickers[symbol]["price"] if symbol in tickers else last_bar["c"]
-                                if open_position(db, coin, evaluation["original"], evaluation["trade_score"],
-                                                 evaluation["stop_fraction"], quote, now_ms):
-                                    LOG.info("Paper entry %s / %s / %s", symbol, coin.mode, coin.signal)
-                        if trail_moved and db.get(Position, symbol) is not None:
+                            if BOT1_PARALLEL_ENABLED:
+                                if symbol in top and evaluation["original"] and evaluation["trade_score"] >= 75:
+                                    quote = tickers[symbol]["price"] if symbol in tickers else last_bar["c"]
+                                    paired = b1_open_pair(
+                                        db, coin, dict(evaluation, end_ms=last_bar["end"]),
+                                        quote, now_ms, FEE_RATE, RISK_FRACTION,
+                                        MAX_POSITION_CASH_FRACTION, MAX_POSITIONS)
+                                    coin.signal = "PAIR " + evaluation["original"]
+                            else:
+                                pos = db.get(Position, symbol)
+                                if (pos is None and symbol in top and evaluation["original"]
+                                    and evaluation["trade_score"] >= 75
+                                    and coin.last_exit_15m_end != last_bar["end"]):
+                                    quote = tickers[symbol]["price"] if symbol in tickers else last_bar["c"]
+                                    if open_position(db, coin, evaluation["original"],
+                                                     evaluation["trade_score"],
+                                                     evaluation["stop_fraction"], quote, now_ms):
+                                        LOG.info("Paper entry %s / %s / %s", symbol, coin.mode, coin.signal)
+                        if trail_moved:
                             coin.signal = "TRAILING"
                     processed += 1
                 except Exception as exc:
