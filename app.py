@@ -1762,7 +1762,7 @@ a{color:var(--blue)}.shell{max-width:1580px;margin:auto;padding:26px clamp(12px,
 @media(max-width:680px){.top{grid-template-columns:1fr}.market-switch{justify-self:start}.actions{grid-column:1;gap:7px}.actions .reset-primary{margin-left:0}}
 </style>
 </head>
-<body><div class="shell">
+<body data-parallel-mode="{% if parallel_enabled %}on{% else %}off{% endif %}"><div class="shell">
 <header class="top"><div class="brand"><div class="brandmark"><img src="/static/hks-modern-chart.svg" width="48" height="48" alt="HKS Modern Chart logo"></div><div><div class="brandname">HKS <span class="gold">Pro Trader</span></div><div class="brandline">LIGHTWEIGHT PAPER ENGINE · BOT 1</div></div></div><nav class="market-switch" aria-label="Trading dashboard"><a class="selected" href="/" aria-current="page">Future</a><a href="/bot2">Spot</a></nav><div class="actions"><button class="btn" id="owner-button" onclick="toggleOwner()">Owner Login</button><span class="pill" id="scanner-pill"><i class="dot"></i><span>Scanner: Checking…</span></span><div class="global-switch" role="group" aria-label="{% if parallel_enabled %}Portfolio view{% else %}Global strategy mode{% endif %}"><span class="global-label">{% if parallel_enabled %}PORTFOLIO{% else %}ALL COINS{% endif %}</span><button type="button" id="global-normal" class="selected" onclick="changeGlobalMode('NORMAL')">Normal</button><button type="button" id="global-reverse" onclick="changeGlobalMode('REVERSE')">Reverse</button></div><button class="btn" id="theme-btn" onclick="toggleTheme()">☼ Light Mode</button><button class="btn" onclick="showHistory()">Trade History</button><button class="btn reset-primary" onclick="openTools()">{% if parallel_enabled %}Reset BOTH{% else %}Reset 1K{% endif %}</button></div></header>
 {% if sqlite_mode %}<div class="notice">⚠ Running on local SQLite. For Vercel, configure a persistent PostgreSQL DATABASE_URL before relying on saved trades, wallet or modes.</div>{% endif %}
 {% if not reset_ready %}<div class="notice">⚠ Reset 1K is disabled until HKS_RESET_PASSWORD is stored in Vercel Environment Variables.</div>{% endif %}
@@ -1798,7 +1798,7 @@ a{color:var(--blue)}.shell{max-width:1580px;margin:auto;padding:26px clamp(12px,
 <div class="modalbg" id="modal" onclick="if(event.target===this)hideModal()"><div class="modal"><h3 id="modal-title">Details</h3><div id="modal-content"></div><div class="formactions" style="margin-top:18px"><button class="btn" onclick="hideModal()">Close</button></div></div></div>
 <script>
 const resetReady={{ reset_ready | tojson }};
-const parallelActive={{ parallel_enabled | tojson }};
+const parallelActive=document.body.dataset.parallelMode==='on';
 let portfolioMode="NORMAL", equityByMode={NORMAL:[],REVERSE:[]};
 let ownerAuthenticated=false;
 const pendingCloses=new Set();
