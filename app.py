@@ -2010,6 +2010,7 @@ function renderCoins(){
    card.innerHTML='<div class="coin-top"><img class="coin-logo" alt="" hidden><div class="fallback" style="display:grid">'+escapeHTML(base.slice(0,1))+'</div><div><div class="coin-name">'+escapeHTML(base)+'</div><div class="coin-tag"></div></div><div class="coin-price"><span class="price-text"></span><div class="coin-change"></div></div></div><div class="coin-score"><div><span class="caption">Score</span> <span class="score"></span><span class="small muted"> / 100</span></div><div class="mode-switch"><button data-mode="NORMAL">Normal</button><button data-mode="REVERSE">Reverse</button></div></div><div class="coin-error" hidden></div>';
    card.onclick=()=>selectCoin(c.symbol);
    card.querySelectorAll('[data-mode]').forEach(b=>b.onclick=e=>changeMode(c.symbol,b.dataset.mode,e));
+   if(parallelActive)card.querySelector('.mode-switch').innerHTML='<span class="tag">N + R</span>';
    coinNodes.set(c.symbol,card);updateLogo(card,c.symbol);
   }
   card.classList.toggle('active',selected===c.symbol);
@@ -2046,7 +2047,7 @@ async function fetchAllEquity(){
  if(equityLoadingAll)return;
  equityLoadingAll=true;
  try{
-  const res=await fetch('/api/equity',{cache:'no-store'});
+  const res=await fetch('/api/equity'+(parallelActive?'?mode='+portfolioMode:''),{cache:'no-store'});
   if(!res.ok)throw Error('HTTP '+res.status);
   const data=await res.json();
   if(!Array.isArray(data.points))throw Error('Equity history unavailable');
@@ -2056,15 +2057,25 @@ async function fetchAllEquity(){
  }catch(err){if(equityRange==='all')el('equity-summary').textContent='Unable to load full equity history · '+err.message}
  finally{equityLoadingAll=false}
 }
-function updateEquityPoints(points,totalTrades){
+function updateEquityPoints(points,totalTrades,modePoints){
+ if(parallelActive && modePoints)equityByMode=modePoints;
  equityRecent=Array.isArray(points)?points:[];
  equityTotalTrades=totalTrades;
  if(equityRange==='all'&&equityAllLoadedCount!==totalTrades)fetchAllEquity();
  renderEquity();
 }
 function renderEquity(){
- const svg=el('equity-chart');svg.replaceChildren();
  const source=equityRange==='all'&&equityAllLoadedCount===equityTotalTrades?equityAll:equityRecent;
+ drawEquity('equity-chart','equity-summary',source);
+ if(parallelActive){
+   const other=portfolioMode==='NORMAL'?'REVERSE':'NORMAL';
+   el('equity-title').textContent=portfolioMode;
+   el('equity-other-title').textContent=other;
+   drawEquity('equity-chart-other','equity-summary-other',equityByMode[other]||[]);
+ }
+}
+function drawEquity(chartId,summaryId,source){
+ const svg=el(chartId);svg.replaceChildren();
  const records=selectEquityPoints(source,equityRange);
  const values=records.map(p=>Number(p.balance)).filter(Number.isFinite);
  const ns='http://www.w3.org/2000/svg';
@@ -2082,7 +2093,7 @@ function renderEquity(){
   const txt=add('text',{x:left-9,y:y+4,'text-anchor':'end',fill:'var(--muted)',opacity:'.9'});
   txt.textContent='$'+fmt(val,span<10?2:0);
  }
- if(values.length===0){el('equity-summary').textContent='Waiting for recorded equity';return}
+ if(values.length===0){el(summaryId).textContent='Waiting for recorded equity';return}
  // Shape-preserving Hermite tangents: curves pass through each ACTUAL balance,
  // without overshoot, invented peaks/troughs or extra value observations.
  const xs=values.map((_,i)=>sx(i)),ys=values.map(v=>sy(v));
@@ -2105,7 +2116,7 @@ function renderEquity(){
  // A single small endpoint indicator is enough, including when no trades exist.
  add('circle',{cx:xs[xs.length-1],cy:ys[ys.length-1],r:'3.1',fill:'var(--text)',stroke:'var(--panel)','stroke-width':'1.4'});
  const count=Math.max(0,records.length-1);
- el('equity-summary').textContent=count+' closed '+(count===1?'trade':'trades')+' · '+money(values[values.length-1]);
+ el(summaryId).textContent=count+' closed '+(count===1?'trade':'trades')+' · '+money(values[values.length-1]);
 }
 function rowOfTrade(t){
  let tr=document.createElement('tr');
@@ -2136,16 +2147,24 @@ async function showHistory(){
 }
 let refreshing=false;
 async function load(){if(refreshing)return;refreshing=true;try{
- let r=await fetch('/api/state',{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);let d=await r.json();coinData=d.coins;globalMode=d.global_mode||'NORMAL';renderGlobalMode();
- el('max-positions').textContent='Risk managed · max '+d.max_positions;
+ let r=await fetch('/api/state'+(parallelActive?'?mode='+portfolioMode:''),{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);let d=await r.json();coinData=d.coins;globalMode=d.global_mode||'NORMAL';renderGlobalMode();
+ el('max-positions').textContent='Risk managed · max '+d.max_positions+(parallelActive?' per mode · '+portfolioMode:'');
  el('balance').textContent=money(d.balance);el('unreal').textContent=money(d.unrealized);el('unreal').className='value '+cssSigned(d.unrealized);
  el('wins').textContent=d.wins;el('losses').textContent=d.losses;el('winrate').textContent=fmt(d.wins*100/Math.max(d.wins+d.losses,1),1)+'%';el('open-count').textContent=d.open_positions.length+' open position(s)';el('coin-count').textContent=d.coin_count+' pairs';
  const st=d.scanner;const pill=el('scanner-pill');pill.innerHTML='<i class="dot '+(st.status==='RUNNING'?'ok':st.status==='OFFLINE'?'fail':'warn')+'"></i>'+escapeHTML('Scanner: '+st.status);pill.title=st.last_error||'';
  el('scanner-line').textContent='Last successful scan: '+timeUTC(st.last_success)+' UTC | Processed '+st.processed+' | Errors '+st.errors+(st.last_error?' | '+st.last_error:'');
  el('market-status').textContent='Prices: '+(d.market_stale?'STALE'+(d.quote_feed?.last_error?' · '+d.quote_feed.last_error.slice(0,110):''):'fresh')+' · 00:00 UTC base · 15m confirmed signals';
- renderCoins();updateEquityPoints(d.equity_points,(Number(d.wins)||0)+(Number(d.losses)||0)+(Number(d.flats)||0));
+ renderCoins();updateEquityPoints(d.equity_points,(Number(d.wins)||0)+(Number(d.losses)||0)+(Number(d.flats)||0),d.mode_equity_points);
+ if(parallelActive){
+    for(const mode of ['NORMAL','REVERSE']){
+      const s=d.mode_summaries?.[mode];if(!s)continue;
+      el('mode-'+mode.toLowerCase()+'-balance').textContent=money(s.balance);
+      el('mode-'+mode.toLowerCase()+'-cash').textContent='Available collateral '+money(s.available_cash)+' · Open '+s.open;
+    }
+    el('history-mode-label').textContent=portfolioMode;
+ }
  const pbody=el('positions');pbody.replaceChildren();if(!d.open_positions.length)pbody.innerHTML='<tr><td colspan="8" class="empty">No open positions</td></tr>';
- d.open_positions.forEach(p=>{let tr=document.createElement('tr');tr.innerHTML='<td><b>'+escapeHTML(p.symbol)+'</b></td><td>'+p.side+'</td><td>'+p.mode+'</td><td>'+fmt(p.entry,p.entry<1?6:2)+'</td><td>'+fmt(p.stop,p.stop<1?6:2)+'</td><td>'+money(p.capital_used,2)+'</td><td class="'+cssSigned(p.pnl)+'">'+money(p.pnl,3)+'</td><td><button class="btn danger" type="button">Close Trade</button></td>';tr.querySelector('button').disabled=!ownerAuthenticated||pendingCloses.has(p.symbol);tr.querySelector('button').textContent=pendingCloses.has(p.symbol)?'Closing…':'Close Trade';tr.querySelector('button').onclick=()=>doManualClose(p.symbol);pbody.appendChild(tr)});
+ d.open_positions.forEach(p=>{let tr=document.createElement('tr');tr.innerHTML='<td><b>'+escapeHTML(p.symbol)+'</b></td><td>'+p.side+'</td><td>'+p.mode+'</td><td>'+fmt(p.entry,p.entry<1?6:2)+'</td><td>'+fmt(p.stop,p.stop<1?6:2)+'</td><td>'+money(p.capital_used,2)+'</td><td class="'+cssSigned(p.pnl)+'">'+money(p.pnl,3)+'</td><td><button class="btn danger" type="button">Close Trade</button></td>';const closeKey=p.mode+':'+p.symbol;tr.querySelector('button').disabled=!ownerAuthenticated||pendingCloses.has(closeKey);tr.querySelector('button').textContent=pendingCloses.has(closeKey)?'Closing…':'Close Trade';tr.querySelector('button').onclick=()=>doManualClose(p.symbol,p.mode);pbody.appendChild(tr)});
  const recent=el('recent');recent.replaceChildren();if(!d.recent.length)recent.innerHTML='<tr><td colspan="15" class="empty">No closed trades yet</td></tr>';
  d.recent.forEach(t=>recent.appendChild(rowOfTrade(t)));
  }catch(e){el('scanner-pill').innerHTML='<i class="dot fail"></i>Dashboard offline';el('scanner-line').textContent='Dashboard request failed: '+e.message}finally{refreshing=false}}
