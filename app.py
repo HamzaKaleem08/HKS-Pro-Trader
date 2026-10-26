@@ -27,6 +27,14 @@ from flask import Flask, abort, jsonify, render_template_string, request
 from sqlalchemy import (BigInteger, Column, DateTime, ForeignKey, Integer, Numeric, String,
                         Text, create_engine, delete, func, select, text)
 from sqlalchemy.orm import declarative_base, sessionmaker
+from bot1_parallel import (
+    MODES as B1_MODES, ModeWallet, ModePosition, ModeTrade, ModeEquity,
+    ModeExit, ModeDecision, bootstrap as b1_bootstrap,
+    mode_positions as b1_mode_positions, realized_equity as b1_realized_equity,
+    strategy_equity as b1_strategy_equity, open_pair as b1_open_pair,
+    check_position as b1_check_position, close_position as b1_close_position,
+    reset_parallel as b1_reset_parallel,
+)
 
 LOG = logging.getLogger("hks")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -35,6 +43,8 @@ D = Decimal
 ZERO = D("0")
 ONE = D("1")
 START_BALANCE = D("1000")
+# Explicitly gated until owner saves old-history screenshots and approves cutover.
+BOT1_PARALLEL_ENABLED = os.getenv("HKS_BOT1_PARALLEL_ENABLED", "0").lower() in ("1", "true")
 RISK_FRACTION = D("0.01")
 MAX_POSITIONS = 5
 # Conservative 1x collateral model. Never silently enable leverage.
@@ -250,6 +260,11 @@ with Session.begin() as db:
     if db.get(CronHealth, 1) is None:
         db.add(CronHealth(id=1, last_scan_status="NOT STARTED"))
 
+# Isolated b1_* tables are never initialized unless the feature is enabled.
+# No legacy financial rows are modified by initialization.
+if BOT1_PARALLEL_ENABLED:
+    b1_bootstrap(engine, Session, int(time.time() * 1000))
+
 
 class PriceError(Exception):
     pass
@@ -399,7 +414,9 @@ def refresh_live_prices():
         st = db.get(BotState, 1)
         symbols = set(st.market_symbols.split(",")) if st.market_symbols else set()
         symbols.discard("")
-        symbols.update(db.scalars(select(Position.symbol)).all())
+        symbols.update(db.scalars(select(ModePosition.symbol)).all()
+                       if BOT1_PARALLEL_ENABLED else
+                       db.scalars(select(Position.symbol)).all())
     if not symbols:
         return 0  # Deep scan publishes the Top 50 before quote stream starts.
     # Both quote paths use the same public Bitget tickers endpoint.
@@ -772,7 +789,9 @@ def scan_once():
             previous = status.market_symbols.split(",") if status.market_symbols else []
             refresh = not previous or not status.last_market_refresh_ms or now_ms - status.last_market_refresh_ms > REFRESH_MARKETS_MS
             known = {c.symbol: c for c in db.scalars(select(Coin)).all()}
-            holdings = {p.symbol for p in db.scalars(select(Position)).all()}
+            holdings = ({p.symbol for p in db.scalars(select(ModePosition)).all()}
+                        if BOT1_PARALLEL_ENABLED else
+                        {p.symbol for p in db.scalars(select(Position)).all()})
         tickers = market_tickers()
         if refresh:
             top = [s for s, _ in sorted(tickers.items(), key=lambda x: x[1]["volume"], reverse=True)[:SYMBOL_COUNT]]
@@ -833,7 +852,9 @@ def scan_once():
             with Session.begin() as db:
                 coin_write_lock(db)
                 db_coins = {c.symbol: c for c in db.scalars(select(Coin)).all()}
-                db_positions = {p.symbol: p for p in db.scalars(select(Position)).all()}
+                db_positions = ({(p.mode, p.symbol): p for p in db.scalars(select(ModePosition)).all()}
+                                if BOT1_PARALLEL_ENABLED else
+                                {p.symbol: p for p in db.scalars(select(Position)).all()})
                 saved_global = db.get(GlobalMode, 1)
                 default_mode = saved_global.mode if saved_global else "NORMAL"
                 for symbol in symbols:
@@ -859,7 +880,8 @@ def scan_once():
                     last_bar = bars[-1]
                     old_end = coin.last_bar_end
                     if old_end and last_bar["end"] - old_end > 199 * 60_000:
-                        if symbol in db_positions:
+                        if (any(p.symbol == symbol for p in db_positions.values())
+                                if BOT1_PARALLEL_ENABLED else symbol in db_positions):
                             coin.error = "SCANNER GAP >199m with OPEN POSITION: manual review required; trading paused"
                             coin.signal = "PAUSED"
                             errors[symbol] = coin.error
@@ -871,15 +893,28 @@ def scan_once():
                     if old_end and future_bars and future_bars[0]["t"] != old_end:
                         raise PriceError("1m history gap: position unchanged")
 
-                    pos = db_positions.get(symbol)
                     trail_moved = False
-                    if pos is not None and future_bars:
-                        prior_stop = pos.stop
-                        closed = check_position(db, pos, future_bars)
-                        if closed is not None:
-                            db_positions.pop(symbol, None)
-                        else:
-                            trail_moved = pos.stop != prior_stop
+                    if BOT1_PARALLEL_ENABLED:
+                        for mode in B1_MODES:
+                            pos = db_positions.get((mode, symbol))
+                            if pos is not None and future_bars:
+                                old_stop = pos.stop
+                                closed = b1_check_position(
+                                    db, pos, future_bars, FEE_RATE,
+                                    mark_excursion, get_stop_fill, trail_stop)
+                                if closed is not None:
+                                    db_positions.pop((mode, symbol), None)
+                                else:
+                                    trail_moved |= pos.stop != old_stop
+                    else:
+                        pos = db_positions.get(symbol)
+                        if pos is not None and future_bars:
+                            prior_stop = pos.stop
+                            closed = check_position(db, pos, future_bars)
+                            if closed is not None:
+                                db_positions.pop(symbol, None)
+                            else:
+                                trail_moved = pos.stop != prior_stop
 
                     coin.last_bar_end = last_bar["end"]
                     coin.updated_ms = now_ms
@@ -890,18 +925,33 @@ def scan_once():
                         coin.trade_score = evaluation["trade_score"]
                         coin.signal = "WATCH" if evaluation["original"] else "NO SWEEP"
                         coin.last_decision_end = last_bar["end"]
-                        pos = db_positions.get(symbol)
-                        if (pos is None and symbol in top and evaluation["original"]
-                                and evaluation["trade_score"] >= 75
-                                and coin.last_exit_15m_end != last_bar["end"]):
-                            quote = tickers[symbol]["price"] if symbol in tickers else last_bar["c"]
-                            opened = open_position(db, coin, evaluation["original"],
-                                                   evaluation["trade_score"],
-                                                   evaluation["stop_fraction"], quote, now_ms)
-                            if opened:
-                                db_positions[symbol] = opened
-                                LOG.info("Paper entry %s / %s / %s", symbol, coin.mode, coin.signal)
-                    if trail_moved and symbol in db_positions:
+                        if BOT1_PARALLEL_ENABLED:
+                            if (symbol in top and evaluation["original"]
+                                    and evaluation["trade_score"] >= 75):
+                                quote = tickers[symbol]["price"] if symbol in tickers else last_bar["c"]
+                                paired = b1_open_pair(
+                                    db, coin, dict(evaluation, end_ms=last_bar["end"]),
+                                    quote, now_ms, FEE_RATE, RISK_FRACTION,
+                                    MAX_POSITION_CASH_FRACTION, MAX_POSITIONS)
+                                for mode, (new_pos, status) in paired.items():
+                                    if new_pos is not None:
+                                        db_positions[(mode, symbol)] = new_pos
+                                    LOG.info("Bot1 %s %s %s: %s", symbol, mode,
+                                             evaluation["original"], status)
+                                coin.signal = "PAIR " + evaluation["original"]
+                        else:
+                            pos = db_positions.get(symbol)
+                            if (pos is None and symbol in top and evaluation["original"]
+                                    and evaluation["trade_score"] >= 75
+                                    and coin.last_exit_15m_end != last_bar["end"]):
+                                quote = tickers[symbol]["price"] if symbol in tickers else last_bar["c"]
+                                opened = open_position(db, coin, evaluation["original"],
+                                                       evaluation["trade_score"],
+                                                       evaluation["stop_fraction"], quote, now_ms)
+                                if opened:
+                                    db_positions[symbol] = opened
+                                    LOG.info("Paper entry %s / %s / %s", symbol, coin.mode, coin.signal)
+                    if trail_moved:
                         coin.signal = "TRAILING"
                     processed += 1
         except Exception:
@@ -930,7 +980,8 @@ def scan_once():
                         old_end = coin.last_bar_end
                         # Never fabricate missing history when a scanner was offline >200 minutes.
                         if old_end and last_bar["end"] - old_end > 199 * 60_000:
-                            if db.get(Position, symbol) is not None:
+                            if (db.scalar(select(ModePosition.symbol).where(ModePosition.symbol == symbol).limit(1))
+                                    if BOT1_PARALLEL_ENABLED else db.get(Position, symbol)) is not None:
                                 coin.error = "SCANNER GAP >199m with OPEN POSITION: manual review required; trading paused"
                                 coin.signal = "PAUSED"
                                 errors[symbol] = coin.error
@@ -943,12 +994,22 @@ def scan_once():
                         future_bars = [b for b in bars if not old_end or b["end"] > old_end]
                         if old_end and future_bars and future_bars[0]["t"] != old_end:
                             raise PriceError("1m history gap: position unchanged")
-                        pos = db.get(Position, symbol)
                         trail_moved = False
-                        if pos is not None and future_bars:
-                            prior_stop = pos.stop
-                            check_position(db, pos, future_bars)
-                            trail_moved = (db.get(Position, symbol) is not None and pos.stop != prior_stop)
+                        if BOT1_PARALLEL_ENABLED:
+                            for mode in B1_MODES:
+                                pos = db.get(ModePosition, (mode, symbol))
+                                if pos is not None and future_bars:
+                                    old_stop = pos.stop
+                                    closed = b1_check_position(
+                                        db, pos, future_bars, FEE_RATE,
+                                        mark_excursion, get_stop_fill, trail_stop)
+                                    trail_moved |= (closed is None and pos.stop != old_stop)
+                        else:
+                            pos = db.get(Position, symbol)
+                            if pos is not None and future_bars:
+                                prior_stop = pos.stop
+                                check_position(db, pos, future_bars)
+                                trail_moved = (db.get(Position, symbol) is not None and pos.stop != prior_stop)
                         coin.last_bar_end = last_bar["end"]
                         coin.updated_ms = now_ms
                         if last_bar["end"] % 900000 == 0 and "quarter" in data and "hour" in data and coin.last_decision_end != last_bar["end"]:
@@ -957,14 +1018,25 @@ def scan_once():
                             coin.trade_score = evaluation["trade_score"]
                             coin.signal = "WATCH" if evaluation["original"] else "NO SWEEP"
                             coin.last_decision_end = last_bar["end"]
-                            pos = db.get(Position, symbol)
-                            if pos is None and (symbol in top and evaluation["original"] and evaluation["trade_score"] >= 75
-                                                and coin.last_exit_15m_end != last_bar["end"]):
-                                quote = tickers[symbol]["price"] if symbol in tickers else last_bar["c"]
-                                if open_position(db, coin, evaluation["original"], evaluation["trade_score"],
-                                                 evaluation["stop_fraction"], quote, now_ms):
-                                    LOG.info("Paper entry %s / %s / %s", symbol, coin.mode, coin.signal)
-                        if trail_moved and db.get(Position, symbol) is not None:
+                            if BOT1_PARALLEL_ENABLED:
+                                if symbol in top and evaluation["original"] and evaluation["trade_score"] >= 75:
+                                    quote = tickers[symbol]["price"] if symbol in tickers else last_bar["c"]
+                                    paired = b1_open_pair(
+                                        db, coin, dict(evaluation, end_ms=last_bar["end"]),
+                                        quote, now_ms, FEE_RATE, RISK_FRACTION,
+                                        MAX_POSITION_CASH_FRACTION, MAX_POSITIONS)
+                                    coin.signal = "PAIR " + evaluation["original"]
+                            else:
+                                pos = db.get(Position, symbol)
+                                if (pos is None and symbol in top and evaluation["original"]
+                                    and evaluation["trade_score"] >= 75
+                                    and coin.last_exit_15m_end != last_bar["end"]):
+                                    quote = tickers[symbol]["price"] if symbol in tickers else last_bar["c"]
+                                    if open_position(db, coin, evaluation["original"],
+                                                     evaluation["trade_score"],
+                                                     evaluation["stop_fraction"], quote, now_ms):
+                                        LOG.info("Paper entry %s / %s / %s", symbol, coin.mode, coin.signal)
+                        if trail_moved:
                             coin.signal = "TRAILING"
                     processed += 1
                 except Exception as exc:
@@ -1244,7 +1316,8 @@ def owner_status():
 @app.get("/")
 def page():
     return render_template_string(DASHBOARD_HTML, reset_ready=len(os.environ.get("HKS_RESET_PASSWORD", "")) >= 6,
-                                  fee_rate=str(FEE_RATE), sqlite_mode=not DB_POSTGRES)
+                                  fee_rate=str(FEE_RATE), sqlite_mode=not DB_POSTGRES,
+                                  parallel_enabled=BOT1_PARALLEL_ENABLED)
 
 
 @app.post("/api/mode/all")
@@ -1258,6 +1331,8 @@ def set_global_mode():
     denial = require_owner()
     if denial is not None:
         return denial
+    if BOT1_PARALLEL_ENABLED:
+        return jsonify({"error": "Both modes run in parallel; global switching disabled"}), 409
     obj = request.get_json(silent=True) or {}
     mode = str(obj.get("mode", "")).upper()
     if mode not in {"NORMAL", "REVERSE"}:
@@ -1285,6 +1360,8 @@ def set_mode(symbol):
     denial = require_owner()
     if denial is not None:
         return denial
+    if BOT1_PARALLEL_ENABLED:
+        return jsonify({"error": "Both directions are always active"}), 409
     if not SYMBOL_RE.fullmatch(symbol):
         abort(400)
     mode = str((request.get_json(silent=True) or {}).get("mode", "")).upper()
@@ -1307,8 +1384,9 @@ def reset_wallet():
     if len(os.environ.get("HKS_RESET_PASSWORD", "")) < 6:
         return jsonify({"error": "Reset disabled until HKS_RESET_PASSWORD is configured in Vercel Environment Variables"}), 503
     obj = request.get_json(silent=True) or {}
-    if obj.get("confirm") != "RESET 1K":
-        return jsonify({"error": "Type RESET 1K to confirm"}), 400
+    confirm_text = "RESET BOTH" if BOT1_PARALLEL_ENABLED else "RESET 1K"
+    if obj.get("confirm") != confirm_text:
+        return jsonify({"error": "Type " + confirm_text + " to confirm"}), 400
     allowed, error, status = check_reset_attempt(obj.get("password", ""))
     if not allowed:
         return jsonify({"error": error}), status
@@ -1322,6 +1400,8 @@ def reset_wallet():
                 return jsonify({"error": "Scanner running on another instance"}), 409
         with Session.begin() as db:
             coin_write_lock(db)
+            if BOT1_PARALLEL_ENABLED:
+                b1_reset_parallel(db, utc_ms())
             db.execute(delete(EquityPoint))
             db.execute(delete(ClosedTrade))
             db.execute(delete(Position))
@@ -1354,6 +1434,9 @@ def manual_close_position(symbol):
         return denial
     if not SYMBOL_RE.fullmatch(symbol):
         abort(400)
+    mode = str((request.get_json(silent=True) or {}).get("mode", "NORMAL")).upper()
+    if BOT1_PARALLEL_ENABLED and mode not in B1_MODES:
+        return jsonify({"error": "Mode must be NORMAL or REVERSE"}), 400
     if not _runner_mutex.acquire(blocking=False):
         return jsonify({"error": "Scanner busy; retry after current scan"}), 409
     pg_lock = None
@@ -1363,7 +1446,7 @@ def manual_close_position(symbol):
             if pg_lock is None:
                 return jsonify({"error": "Scanner active on another instance; retry shortly"}), 409
         with Session() as db:
-            if db.get(Position, symbol) is None:
+            if (db.get(ModePosition, (mode, symbol)) if BOT1_PARALLEL_ENABLED else db.get(Position, symbol)) is None:
                 return jsonify({"error": "This position is no longer open"}), 409
         # Retrieve a fresh, real exchange quote. Cached dashboard prices are
         # intentionally NOT used to create a potentially stale paper fill.
@@ -1382,16 +1465,17 @@ def manual_close_position(symbol):
         closed_at = utc_ms()
         with Session.begin() as db:
             coin_write_lock(db)
-            pos = db.get(Position, symbol)
+            pos = (db.get(ModePosition, (mode, symbol)) if BOT1_PARALLEL_ENABLED else db.get(Position, symbol))
             if pos is None:
                 return jsonify({"error": "Position already closed; no change made"}), 409
             # Include this confirmed mark in the directional excursion estimates.
             mark_excursion(pos, {"h": fill, "l": fill})
-            trade = close_position(db, pos, fill, closed_at, "MANUAL CLOSE")
+            trade = (b1_close_position(db, pos, fill, closed_at, "MANUAL CLOSE", FEE_RATE)
+                     if BOT1_PARALLEL_ENABLED else close_position(db, pos, fill, closed_at, "MANUAL CLOSE"))
             trade_id = trade.id
             net = fmt(trade.net_pnl, 4)
         LOG.info("Owner closed paper position %s manually; trade id %s", symbol, trade_id)
-        return jsonify({"ok": True, "symbol": symbol, "trade_id": trade_id,
+        return jsonify({"ok": True, "symbol": symbol, "mode": mode, "trade_id": trade_id,
                         "reason": "MANUAL CLOSE", "exit_price": fmt(fill),
                         "net_pnl": net, "price_source": source})
     finally:
@@ -1426,6 +1510,9 @@ def cron():
 @app.get("/api/state")
 def state():
     now = utc_ms()
+    mode = str(request.args.get("mode", "NORMAL")).upper()
+    if BOT1_PARALLEL_ENABLED and mode not in B1_MODES:
+        return jsonify({"error": "Unknown mode"}), 400
     with Session() as db:
         st = db.get(BotState, 1)
         # No network I/O in dashboard polling. Prices are saved by scan_once.
@@ -1434,10 +1521,10 @@ def state():
         # Do not label cached snapshots live after the quote thread stops.
         stale = True
         quotes = {}
-        wallet = db.get(Wallet, 1)
+        wallet = (db.get(ModeWallet, mode) if BOT1_PARALLEL_ENABLED else db.get(Wallet, 1))
         dynamic = [x for x in st.market_symbols.split(",") if x][:SYMBOL_COUNT]
         coins = {c.symbol: c for c in db.scalars(select(Coin)).all()}
-        positions = db.scalars(select(Position)).all()
+        positions = (b1_mode_positions(db, mode) if BOT1_PARALLEL_ENABLED else db.scalars(select(Position)).all())
         feed = db.get(QuoteHealth, 1)
         cron_health = db.get(CronHealth, 1)
         # An actual successful quote-stream write, NOT a slower 1m candle scan,
@@ -1447,7 +1534,7 @@ def state():
         stale = quote_age_s is None or quote_age_s > 10
         prices = {p.symbol: coins[p.symbol].last_price
                   for p in positions if p.symbol in coins and coins[p.symbol].last_price is not None}
-        equity, unreal = account_equity(db, prices)
+        equity, unreal = (b1_strategy_equity(db, mode, prices) if BOT1_PARALLEL_ENABLED else account_equity(db, prices))
         outcome = []
         for symbol in dynamic:
             c = coins.get(symbol)
@@ -1455,7 +1542,7 @@ def state():
             daily = c.daily_open if c else None
             today = datetime.fromtimestamp(now / 1000, timezone.utc).date().isoformat()
             pct = ((px / daily) - ONE) * 100 if px and daily and daily > ZERO and c.daily_date == today else None
-            outcome.append({"symbol": symbol, "mode": c.mode if c else "NORMAL",
+            outcome.append({"symbol": symbol, "mode": "BOTH" if BOT1_PARALLEL_ENABLED else (c.mode if c else "NORMAL"),
                             "price": fmt(px), "change": fmt(pct, 3),
                             "score": c.score if c else 0,
                             "trade_score": c.trade_score if c else 0,
@@ -1463,11 +1550,16 @@ def state():
                             "updated": c.updated_ms if c else None,
                             "error": c.error if c else None,
                             "open": any(p.symbol == symbol for p in positions)})
-        trades = db.scalars(select(ClosedTrade).order_by(ClosedTrade.id.desc()).limit(10)).all()
-        win_count = db.scalar(select(func.count()).select_from(ClosedTrade).where(ClosedTrade.net_pnl > ZERO)) or 0
-        loss_count = db.scalar(select(func.count()).select_from(ClosedTrade).where(ClosedTrade.net_pnl < ZERO)) or 0
-        flat_count = db.scalar(select(func.count()).select_from(ClosedTrade).where(ClosedTrade.net_pnl == ZERO)) or 0
-        points = db.scalars(select(EquityPoint).order_by(EquityPoint.id.desc()).limit(350)).all()
+        trades = (db.scalars(select(ModeTrade).where(ModeTrade.mode == mode).order_by(ModeTrade.id.desc()).limit(10)).all()
+                  if BOT1_PARALLEL_ENABLED else db.scalars(select(ClosedTrade).order_by(ClosedTrade.id.desc()).limit(10)).all())
+        win_count = ((db.scalar(select(func.count()).select_from(ModeTrade).where(ModeTrade.mode == mode, ModeTrade.net_pnl > ZERO)) or 0)
+                     if BOT1_PARALLEL_ENABLED else (db.scalar(select(func.count()).select_from(ClosedTrade).where(ClosedTrade.net_pnl > ZERO)) or 0))
+        loss_count = ((db.scalar(select(func.count()).select_from(ModeTrade).where(ModeTrade.mode == mode, ModeTrade.net_pnl < ZERO)) or 0)
+                     if BOT1_PARALLEL_ENABLED else (db.scalar(select(func.count()).select_from(ClosedTrade).where(ClosedTrade.net_pnl < ZERO)) or 0))
+        flat_count = ((db.scalar(select(func.count()).select_from(ModeTrade).where(ModeTrade.mode == mode, ModeTrade.net_pnl == ZERO)) or 0)
+                     if BOT1_PARALLEL_ENABLED else (db.scalar(select(func.count()).select_from(ClosedTrade).where(ClosedTrade.net_pnl == ZERO)) or 0))
+        points = (db.scalars(select(ModeEquity).where(ModeEquity.mode == mode).order_by(ModeEquity.id.desc()).limit(350)).all()
+                  if BOT1_PARALLEL_ENABLED else db.scalars(select(EquityPoint).order_by(EquityPoint.id.desc()).limit(350)).all())
         running_age = (now - st.last_success_ms) // 1000 if st.last_success_ms else None
         if running_age is None:
             if st.last_attempt_ms is None:
@@ -1494,9 +1586,34 @@ def state():
                               "pnl": fmt(upnl, 4), "score": p.score,
                               "mfe_pct": fmt(p.mfe_frac * 100, 2),
                               "mae_pct": fmt(p.mae_frac * 100, 2)})
-        realized = START_BALANCE + (db.scalar(select(func.coalesce(func.sum(ClosedTrade.net_pnl), 0))) or ZERO)
+        realized = (b1_realized_equity(db, mode) if BOT1_PARALLEL_ENABLED else
+                    START_BALANCE + (db.scalar(select(func.coalesce(func.sum(ClosedTrade.net_pnl), 0))) or ZERO))
+        mode_summaries = {}
+        mode_equity_points = {}
+        if BOT1_PARALLEL_ENABLED:
+            for m in B1_MODES:
+                w = db.get(ModeWallet, m)
+                m_pos = b1_mode_positions(db, m)
+                m_prices = {p.symbol: coins[p.symbol].last_price for p in m_pos
+                            if p.symbol in coins and coins[p.symbol].last_price is not None}
+                m_equity, m_upnl = b1_strategy_equity(db, m, m_prices)
+                m_points = db.scalars(select(ModeEquity).where(ModeEquity.mode == m)
+                              .order_by(ModeEquity.id.desc()).limit(350)).all()
+                mode_equity_points[m] = [{"t": q.time_ms, "balance": fmt(q.balance, 4)}
+                                          for q in reversed(m_points)]
+                mode_summaries[m] = {
+                    "balance": fmt(b1_realized_equity(db, m), 4),
+                    "equity": fmt(m_equity, 4),
+                    "available_cash": fmt(w.cash, 4),
+                    "unrealized": fmt(m_upnl, 4),
+                    "open": len(m_pos),
+                }
+
         saved_global = db.get(GlobalMode, 1)
-        return jsonify({"now": now, "global_mode": saved_global.mode if saved_global else "NORMAL", "max_positions": MAX_POSITIONS, "market_stale": stale,
+        return jsonify({"now": now, "parallel": BOT1_PARALLEL_ENABLED,
+                        "view_mode": mode, "mode_summaries": mode_summaries,
+                        "mode_equity_points": mode_equity_points,
+                        "global_mode": "BOTH" if BOT1_PARALLEL_ENABLED else (saved_global.mode if saved_global else "NORMAL"), "max_positions": MAX_POSITIONS, "market_stale": stale,
                         "quotes_age_s": round(quote_age_s, 1) if quote_age_s is not None else None,
                         "quote_target_s": 2, "strategy_timeframe": "15m",
                         "quote_feed": {"source": feed.source if feed else None,
@@ -1535,7 +1652,13 @@ def equity_history():
     Only persisted hks_equity_point balances are exposed; no interpolated data.
     """
     with Session() as db:
-        points = db.scalars(select(EquityPoint).order_by(EquityPoint.id.asc())).all()
+        mode = str(request.args.get("mode", "NORMAL")).upper()
+        if BOT1_PARALLEL_ENABLED and mode not in B1_MODES:
+            return jsonify({"error": "Unknown mode"}), 400
+        points = (db.scalars(select(ModeEquity).where(ModeEquity.mode == mode)
+                  .order_by(ModeEquity.id.asc())).all()
+                  if BOT1_PARALLEL_ENABLED else
+                  db.scalars(select(EquityPoint).order_by(EquityPoint.id.asc())).all())
         return jsonify({"points": [{"t": p.time_ms, "balance": fmt(p.balance, 4)}
                                    for p in points]})
 
@@ -1547,7 +1670,13 @@ def history():
     except ValueError:
         abort(400)
     with Session() as db:
-        trades = db.scalars(select(ClosedTrade).order_by(ClosedTrade.id.desc()).limit(limit)).all()
+        mode = str(request.args.get("mode", "NORMAL")).upper()
+        if BOT1_PARALLEL_ENABLED and mode not in B1_MODES:
+            return jsonify({"error": "Unknown mode"}), 400
+        trades = (db.scalars(select(ModeTrade).where(ModeTrade.mode == mode)
+                  .order_by(ModeTrade.id.desc()).limit(limit)).all()
+                  if BOT1_PARALLEL_ENABLED else
+                  db.scalars(select(ClosedTrade).order_by(ClosedTrade.id.desc()).limit(limit)).all())
         return jsonify({"trades": [view_trade(t) for t in trades]})
 
 
@@ -1633,13 +1762,19 @@ a{color:var(--blue)}.shell{max-width:1580px;margin:auto;padding:26px clamp(12px,
 @media(max-width:680px){.top{grid-template-columns:1fr}.market-switch{justify-self:start}.actions{grid-column:1;gap:7px}.actions .reset-primary{margin-left:0}}
 </style>
 </head>
-<body><div class="shell">
-<header class="top"><div class="brand"><div class="brandmark"><img src="/static/hks-modern-chart.svg" width="48" height="48" alt="HKS Modern Chart logo"></div><div><div class="brandname">HKS <span class="gold">Pro Trader</span></div><div class="brandline">LIGHTWEIGHT PAPER ENGINE · BOT 1</div></div></div><nav class="market-switch" aria-label="Trading dashboard"><a class="selected" href="/" aria-current="page">Future</a><a href="/bot2">Spot</a></nav><div class="actions"><button class="btn" id="owner-button" onclick="toggleOwner()">Owner Login</button><span class="pill" id="scanner-pill"><i class="dot"></i><span>Scanner: Checking…</span></span><div class="global-switch" role="group" aria-label="Global strategy mode"><span class="global-label">ALL COINS</span><button type="button" id="global-normal" class="selected" onclick="changeGlobalMode('NORMAL')">Normal</button><button type="button" id="global-reverse" onclick="changeGlobalMode('REVERSE')">Reverse</button></div><button class="btn" id="theme-btn" onclick="toggleTheme()">☼ Light Mode</button><button class="btn" onclick="showHistory()">Trade History</button><button class="btn reset-primary" onclick="openTools()">Reset 1K</button></div></header>
+<body data-parallel-mode="{% if parallel_enabled %}on{% else %}off{% endif %}"><div class="shell">
+<header class="top"><div class="brand"><div class="brandmark"><img src="/static/hks-modern-chart.svg" width="48" height="48" alt="HKS Modern Chart logo"></div><div><div class="brandname">HKS <span class="gold">Pro Trader</span></div><div class="brandline">LIGHTWEIGHT PAPER ENGINE · BOT 1</div></div></div><nav class="market-switch" aria-label="Trading dashboard"><a class="selected" href="/" aria-current="page">Future</a><a href="/bot2">Spot</a></nav><div class="actions"><button class="btn" id="owner-button" onclick="toggleOwner()">Owner Login</button><span class="pill" id="scanner-pill"><i class="dot"></i><span>Scanner: Checking…</span></span><div class="global-switch" role="group" aria-label="{% if parallel_enabled %}Portfolio view{% else %}Global strategy mode{% endif %}"><span class="global-label">{% if parallel_enabled %}PORTFOLIO{% else %}ALL COINS{% endif %}</span><button type="button" id="global-normal" class="selected" onclick="changeGlobalMode('NORMAL')">Normal</button><button type="button" id="global-reverse" onclick="changeGlobalMode('REVERSE')">Reverse</button></div><button class="btn" id="theme-btn" onclick="toggleTheme()">☼ Light Mode</button><button class="btn" onclick="showHistory()">Trade History</button><button class="btn reset-primary" onclick="openTools()">{% if parallel_enabled %}Reset BOTH{% else %}Reset 1K{% endif %}</button></div></header>
 {% if sqlite_mode %}<div class="notice">⚠ Running on local SQLite. For Vercel, configure a persistent PostgreSQL DATABASE_URL before relying on saved trades, wallet or modes.</div>{% endif %}
 {% if not reset_ready %}<div class="notice">⚠ Reset 1K is disabled until HKS_RESET_PASSWORD is stored in Vercel Environment Variables.</div>{% endif %}
-<div class="statusline" style="margin:-12px 0 14px">Global Normal/Reverse applies to all new entries. Per-coin custom mode remains available; changing Global mode resets those custom choices. Open positions keep their original direction.</div>
+<div class="statusline" style="margin:-12px 0 14px">{% if parallel_enabled %}Every qualified 15m signal runs NORMAL and REVERSE simultaneously with separate risk, wallets, positions and history. Select a portfolio to review. Each uses $1,000 strategy equity and $2,000 virtual collateral.{% else %}Global Normal/Reverse applies to all new entries. Per-coin custom mode remains available; changing Global mode resets those custom choices. Open positions keep their original direction.{% endif %}</div>
+{% if parallel_enabled %}
+<div class="stats" style="grid-template-columns:repeat(2,minmax(0,1fr));margin-bottom:15px">
+ <div class="stat"><div class="caption">NORMAL · Strategy equity</div><div class="value" id="mode-normal-balance">$1,000.00</div><div class="statusline" id="mode-normal-cash">Virtual collateral available: $2,000</div></div>
+ <div class="stat"><div class="caption">REVERSE · Strategy equity</div><div class="value" id="mode-reverse-balance">$1,000.00</div><div class="statusline" id="mode-reverse-cash">Virtual collateral available: $2,000</div></div>
+</div>
+{% endif %}
 <div class="stats">
- <div class="stat"><div class="caption">Wallet Balance</div><div class="value" id="balance">$1,000.00</div><div class="statusline">Closed-trade balance · starts at $1,000</div></div>
+ <div class="stat"><div class="caption">{% if parallel_enabled %}Selected Strategy Balance{% else %}Wallet Balance{% endif %}</div><div class="value" id="balance">$1,000.00</div><div class="statusline">Closed-trade balance · starts at $1,000</div></div>
  <div class="stat"><div class="caption">Unrealized PnL</div><div class="value" id="unreal">$0.00</div><div class="statusline">Open positions, gross</div></div>
  <div class="stat"><div class="caption">Winning Trades</div><div class="value positive" id="wins">0</div><div class="statusline">Net after fees</div></div>
  <div class="stat"><div class="caption">Losing Trades</div><div class="value negative" id="losses">0</div><div class="statusline">Net after fees</div></div>
@@ -1653,15 +1788,18 @@ a{color:var(--blue)}.shell{max-width:1580px;margin:auto;padding:26px clamp(12px,
  <section class="panel"><div class="market-header"><div class="heading">Dynamic Coins <span class="sub" id="coin-count">0 pairs</span></div><div class="toolbar"><input class="search" id="coin-search" aria-label="Search coin" placeholder="Search coin…" oninput="renderCoins()"><span class="sync" id="market-status">UTC daily change</span></div></div><div id="coin-grid" class="grid-market"><div class="empty">Starting the scanner automatically. Coins will appear after market data loads.</div></div><div class="statusline">Stablecoin base pairs excluded. Score is a UI progress score; trading still requires the original sweep and ≥75 actual entry score.</div></section>
  <div class="side-stack">
  <section class="panel"><div class="heading">Open Paper Positions <span class="sub" id="max-positions">Risk managed · max —</span></div><div class="tablewrap"><table><thead><tr><th>Coin</th><th>Side</th><th>Mode</th><th>Entry</th><th>Stop</th><th>Capital Used</th><th>PnL</th><th>Action</th></tr></thead><tbody id="positions"><tr><td colspan="8" class="empty">No open positions</td></tr></tbody></table></div><div class="statusline" id="scanner-line">Scanner last successful scan: —</div></section>
- <section class="panel"><div class="heading">Wallet Performance <span class="sub">Closed-trade equity · After fees</span></div><div class="equity-toolbar"><div class="equity-range" role="group" aria-label="Equity chart history"><button type="button" data-equity-range="10" onclick="setEquityRange(10)">10</button><button type="button" class="selected" data-equity-range="30" onclick="setEquityRange(30)">30</button><button type="button" data-equity-range="50" onclick="setEquityRange(50)">50</button><button type="button" data-equity-range="all" onclick="setEquityRange('all')">All</button></div><span class="sub" id="equity-summary">Closed trades · Starting $1,000</span></div><svg class="graph" id="equity-chart" role="img" aria-label="Actual closed-trade wallet balance chart" viewBox="0 0 780 250" preserveAspectRatio="none"></svg><div class="statusline">Only actual closed-trade balances. Green = profitable close, red = losing close. Unrealized PnL excluded.</div></section>
+ <section class="panel"><div class="heading">{% if parallel_enabled %}<span id="equity-title">NORMAL</span> Strategy Equity{% else %}Wallet Performance{% endif %} <span class="sub">Closed-trade equity · After fees</span></div><div class="equity-toolbar"><div class="equity-range" role="group" aria-label="Equity chart history"><button type="button" data-equity-range="10" onclick="setEquityRange(10)">10</button><button type="button" class="selected" data-equity-range="30" onclick="setEquityRange(30)">30</button><button type="button" data-equity-range="50" onclick="setEquityRange(50)">50</button><button type="button" data-equity-range="all" onclick="setEquityRange('all')">All</button></div><span class="sub" id="equity-summary">Closed trades · Starting $1,000</span></div><svg class="graph" id="equity-chart" role="img" aria-label="Recorded equity for selected mode" viewBox="0 0 780 250" preserveAspectRatio="none"></svg><div class="statusline">Only recorded closed-trade balances. Green = profit, red = loss. Unrealized excluded.</div>
+{% if parallel_enabled %}<div class="heading" style="margin-top:20px"><span id="equity-other-title">REVERSE</span> Strategy Equity</div><div class="statusline" id="equity-summary-other">Closed trades · Starting $1,000</div><svg class="graph" id="equity-chart-other" role="img" aria-label="Other mode's recorded equity" viewBox="0 0 780 250" preserveAspectRatio="none"></svg>{% endif %}</section>
  </div>
 </div>
-<section class="panel" style="margin-top:16px"><div class="heading">Last 10 Closed Trades <button class="btn" onclick="showHistory()">View Full History →</button></div><div class="tablewrap"><table><thead><tr><th>Coin</th><th>Direction</th><th>Strategy</th><th>Qty</th><th>Capital Used</th><th>Entry</th><th>Exit</th><th>Exit Reason</th><th>Fees</th><th>Net PnL</th><th>Net %</th><th>MFE</th><th>MAE</th><th>Duration</th><th>Closed (UTC)</th></tr></thead><tbody id="recent"><tr><td colspan="15" class="empty">No closed trades yet</td></tr></tbody></table></div></section>
+<section class="panel" style="margin-top:16px"><div class="heading">Last 10 Closed Trades {% if parallel_enabled %}· <span id="history-mode-label">NORMAL</span>{% else %}<span id="history-mode-label" hidden>NORMAL</span>{% endif %} <button class="btn" onclick="showHistory()">View Full History →</button></div><div class="tablewrap"><table><thead><tr><th>Coin</th><th>Direction</th><th>Strategy</th><th>Qty</th><th>Capital Used</th><th>Entry</th><th>Exit</th><th>Exit Reason</th><th>Fees</th><th>Net PnL</th><th>Net %</th><th>MFE</th><th>MAE</th><th>Duration</th><th>Closed (UTC)</th></tr></thead><tbody id="recent"><tr><td colspan="15" class="empty">No closed trades yet</td></tr></tbody></table></div></section>
 <footer class="footer">HKS Pro Trader · Illustrative paper execution · No live orders · Market/chart data require Binance USD-M Futures / TradingView connectivity · Fees configurable; fills simulated</footer>
 </div>
 <div class="modalbg" id="modal" onclick="if(event.target===this)hideModal()"><div class="modal"><h3 id="modal-title">Details</h3><div id="modal-content"></div><div class="formactions" style="margin-top:18px"><button class="btn" onclick="hideModal()">Close</button></div></div></div>
 <script>
 const resetReady={{ reset_ready | tojson }};
+const parallelActive=document.body.dataset.parallelMode==='on';
+let portfolioMode="NORMAL", equityByMode={NORMAL:[],REVERSE:[]};
 let ownerAuthenticated=false;
 const pendingCloses=new Set();
 let coinData=[], selected='BTCUSDT', timeframe='15', tradeIndex={}, selectedHistory=[], globalMode='NORMAL';
@@ -1683,24 +1821,31 @@ function notify(s){showModal('HKS Notice','<p>'+escapeHTML(s)+'</p>')}
 async function post(url,body){let r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});let j=await r.json().catch(()=>({error:'Unexpected server response'}));if(!r.ok)throw Error(j.error||('HTTP '+r.status));return j}
 function openTools(){
  if(!ownerAuthenticated){notify('Owner Login required to reset the paper account.');return}
- showModal('Reset 1K','<p class="small muted">Mode changes affect NEW trades only. Existing open positions keep their opening mode. The scanner starts on website visit; external Cron GET /wake performs a direct completed-candle scan even if no browser is open. /api/cron remains token-protected.</p><p class="small negative">Reset 1K deletes paper positions, trade history and wallet performance only. Market scores, SMC/candle analysis and coin modes are preserved.</p><label class="field">Reset password<input type="password" id="reset-pass" autocomplete="off"></label><label class="field">Type RESET 1K<input id="reset-confirm" placeholder="RESET 1K"></label><button class="btn danger" onclick="doReset()" '+(resetReady?'':'disabled')+'>Reset 1K</button>');
+ const warning = parallelActive
+ ? 'Reset BOTH deletes old Bot 1 history and both NORMAL/REVERSE accounts. Both restart with $1,000 strategy equity and $2,000 virtual collateral. Bot 2 remains untouched. Save your old screenshots BEFORE confirming.'
+ : 'Reset 1K deletes paper positions, history and wallet performance only. Market scores stay intact.';
+ const confirm = parallelActive?'RESET BOTH':'RESET 1K';
+ showModal(parallelActive?'Reset Both Modes':'Reset 1K',
+ '<p class="small negative">'+escapeHTML(warning)+'</p><label class="field">Reset password<input type="password" id="reset-pass" autocomplete="off"></label>'+
+ '<label class="field">Type '+escapeHTML(confirm)+'<input id="reset-confirm" placeholder="'+escapeHTML(confirm)+'"></label>'+
+ '<button class="btn danger" onclick="doReset()" '+(resetReady?'':'disabled')+'>Confirm Reset</button>');
 }
-async function doManualClose(symbol){
+async function doManualClose(symbol,mode='NORMAL'){
  if(!ownerAuthenticated){notify('Owner Login required.');return}
- if(!/^[A-Z0-9]+USDT$/.test(symbol)||pendingCloses.has(symbol))return;
- pendingCloses.add(symbol);
+ const key=mode+':'+symbol;
+ if(!/^[A-Z0-9]+USDT$/.test(symbol)||pendingCloses.has(key))return;
+ pendingCloses.add(key);
  try{
-  // One-click: request starts immediately. No modal or password per trade.
-  const result=await post('/api/position/'+symbol+'/close',{});
+  const result=await post('/api/position/'+symbol+'/close',{mode});
   await load();
-  notify(symbol+' manually closed at '+money(result.exit_price,6)+' · Net '+money(result.net_pnl,4));
+  notify(mode+' '+symbol+' manually closed at '+money(result.exit_price,6)+' · Net '+money(result.net_pnl,4));
  }catch(e){notify(e.message)}
- finally{pendingCloses.delete(symbol)}
+ finally{pendingCloses.delete(key)}
 }
 function updateOwnerUI(){
  const button=el('owner-button');
  button.textContent=ownerAuthenticated?'Owner · Logout':'Owner Login';
- document.querySelectorAll('.global-switch button').forEach(x=>x.disabled=!ownerAuthenticated);
+ document.querySelectorAll('.global-switch button').forEach(x=>x.disabled=!parallelActive&&!ownerAuthenticated);
  document.querySelectorAll('.mode-switch button').forEach(x=>x.disabled=!ownerAuthenticated);
  document.querySelectorAll('#positions button').forEach(x=>x.disabled=!ownerAuthenticated);
 }
@@ -1729,13 +1874,26 @@ async function doOwnerLogout(){
   ownerAuthenticated=false;hideModal();updateOwnerUI();renderCoins();await load();
  }catch(e){notify(e.message)}
 }
-async function doReset(){try{let p=el('reset-pass').value,confirm=el('reset-confirm').value;if(!window.confirm('Delete ALL paper account data and reset exactly to $1,000?'))return;await post('/api/reset',{password:p,confirm});hideModal();await load()}catch(e){notify(e.message)}}
+async function doReset(){
+ try{
+  const password=el('reset-pass').value,confirm=el('reset-confirm').value;
+  const expected=parallelActive?'RESET BOTH':'RESET 1K';
+  if(confirm!==expected){notify('Type '+expected+' exactly.');return}
+  if(!window.confirm(parallelActive?'Delete legacy Bot 1 history and reset BOTH portfolios? This cannot be undone.':'Delete ALL Bot 1 paper account data and reset to $1,000?'))return;
+  await post('/api/reset',{password,confirm});hideModal();equityAll=[];equityAllLoadedCount=-1;await load();
+ }catch(e){notify(e.message)}
+}
 async function changeMode(symbol,mode,evt){evt.stopPropagation();if(!ownerAuthenticated){notify('Owner Login required.');return}try{await post('/api/mode/'+symbol,{mode});const c=coinData.find(c=>c.symbol===symbol);if(c)c.mode=mode;renderCoins()}catch(e){notify(e.message)}}
 function renderGlobalMode(){
- el('global-normal').classList.toggle('selected',globalMode==='NORMAL');
- el('global-reverse').classList.toggle('selected',globalMode==='REVERSE');
+ const displayMode=parallelActive?portfolioMode:globalMode;
+ el('global-normal').classList.toggle('selected',displayMode==='NORMAL');
+ el('global-reverse').classList.toggle('selected',displayMode==='REVERSE');
 }
 async function changeGlobalMode(mode){
+ if(parallelActive){
+   if(!['NORMAL','REVERSE'].includes(mode))return;
+   portfolioMode=mode;equityAll=[];equityAllLoadedCount=-1;renderGlobalMode();await load();return;
+ }
  if(!ownerAuthenticated){notify('Owner Login required.');return}
  if(!['NORMAL','REVERSE'].includes(mode))return;
  if(!window.confirm('Set ALL coins to '+mode+'? This clears custom coin modes for future entries. Open trades remain unchanged.'))return;
@@ -1854,6 +2012,7 @@ function renderCoins(){
    card.innerHTML='<div class="coin-top"><img class="coin-logo" alt="" hidden><div class="fallback" style="display:grid">'+escapeHTML(base.slice(0,1))+'</div><div><div class="coin-name">'+escapeHTML(base)+'</div><div class="coin-tag"></div></div><div class="coin-price"><span class="price-text"></span><div class="coin-change"></div></div></div><div class="coin-score"><div><span class="caption">Score</span> <span class="score"></span><span class="small muted"> / 100</span></div><div class="mode-switch"><button data-mode="NORMAL">Normal</button><button data-mode="REVERSE">Reverse</button></div></div><div class="coin-error" hidden></div>';
    card.onclick=()=>selectCoin(c.symbol);
    card.querySelectorAll('[data-mode]').forEach(b=>b.onclick=e=>changeMode(c.symbol,b.dataset.mode,e));
+   if(parallelActive)card.querySelector('.mode-switch').innerHTML='<span class="tag">N + R</span>';
    coinNodes.set(c.symbol,card);updateLogo(card,c.symbol);
   }
   card.classList.toggle('active',selected===c.symbol);
@@ -1890,7 +2049,7 @@ async function fetchAllEquity(){
  if(equityLoadingAll)return;
  equityLoadingAll=true;
  try{
-  const res=await fetch('/api/equity',{cache:'no-store'});
+  const res=await fetch('/api/equity'+(parallelActive?'?mode='+portfolioMode:''),{cache:'no-store'});
   if(!res.ok)throw Error('HTTP '+res.status);
   const data=await res.json();
   if(!Array.isArray(data.points))throw Error('Equity history unavailable');
@@ -1900,15 +2059,26 @@ async function fetchAllEquity(){
  }catch(err){if(equityRange==='all')el('equity-summary').textContent='Unable to load full equity history · '+err.message}
  finally{equityLoadingAll=false}
 }
-function updateEquityPoints(points,totalTrades){
+function updateEquityPoints(points,totalTrades,modePoints){
+ if(parallelActive && modePoints)equityByMode=modePoints;
  equityRecent=Array.isArray(points)?points:[];
  equityTotalTrades=totalTrades;
  if(equityRange==='all'&&equityAllLoadedCount!==totalTrades)fetchAllEquity();
  renderEquity();
 }
 function renderEquity(){
- const svg=el('equity-chart');svg.replaceChildren();
  const source=equityRange==='all'&&equityAllLoadedCount===equityTotalTrades?equityAll:equityRecent;
+ drawEquity('equity-chart','equity-summary',source);
+ // Keep the legacy standalone equity regression harness usable without UI globals.
+ if(typeof parallelActive !== 'undefined' && parallelActive){
+   const other=portfolioMode==='NORMAL'?'REVERSE':'NORMAL';
+   el('equity-title').textContent=portfolioMode;
+   el('equity-other-title').textContent=other;
+   drawEquity('equity-chart-other','equity-summary-other',equityByMode[other]||[]);
+ }
+}
+function drawEquity(chartId,summaryId,source){
+ const svg=el(chartId);svg.replaceChildren();
  const records=selectEquityPoints(source,equityRange);
  const values=records.map(p=>Number(p.balance)).filter(Number.isFinite);
  const ns='http://www.w3.org/2000/svg';
@@ -1926,7 +2096,7 @@ function renderEquity(){
   const txt=add('text',{x:left-9,y:y+4,'text-anchor':'end',fill:'var(--muted)',opacity:'.9'});
   txt.textContent='$'+fmt(val,span<10?2:0);
  }
- if(values.length===0){el('equity-summary').textContent='Waiting for recorded equity';return}
+ if(values.length===0){el(summaryId).textContent='Waiting for recorded equity';return}
  // Shape-preserving Hermite tangents: curves pass through each ACTUAL balance,
  // without overshoot, invented peaks/troughs or extra value observations.
  const xs=values.map((_,i)=>sx(i)),ys=values.map(v=>sy(v));
@@ -1949,7 +2119,7 @@ function renderEquity(){
  // A single small endpoint indicator is enough, including when no trades exist.
  add('circle',{cx:xs[xs.length-1],cy:ys[ys.length-1],r:'3.1',fill:'var(--text)',stroke:'var(--panel)','stroke-width':'1.4'});
  const count=Math.max(0,records.length-1);
- el('equity-summary').textContent=count+' closed '+(count===1?'trade':'trades')+' · '+money(values[values.length-1]);
+ el(summaryId).textContent=count+' closed '+(count===1?'trade':'trades')+' · '+money(values[values.length-1]);
 }
 function rowOfTrade(t){
  let tr=document.createElement('tr');
@@ -1972,24 +2142,32 @@ function showTrade(t){
 }
 async function showHistory(){
  try{
-  let r=await fetch('/api/history?limit=100');let d=await r.json();selectedHistory=d.trades;
+  let r=await fetch('/api/history?limit=100'+(parallelActive?'&mode='+portfolioMode:''));let d=await r.json();selectedHistory=d.trades;
   let html='<p class="small muted">Latest '+d.trades.length+' closed trades. Net % is relative to original capital used (1x notional). Scroll sideways for all fields; click a row for details.</p><div class="tablewrap" style="max-height:60vh"><table><thead><tr><th>Coin</th><th>Side</th><th>Mode</th><th>Qty</th><th>Capital Used</th><th>Entry</th><th>Exit</th><th>Exit Reason</th><th>Fees</th><th>Net</th><th>Net %</th><th>MFE</th><th>MAE</th><th>Duration</th><th>UTC</th></tr></thead><tbody id="history-body"></tbody></table></div>';
-  showModal('Trade History',html);el('modal').querySelector('.modal').classList.add('history-modal');
+  showModal(parallelActive?portfolioMode+' Trade History':'Trade History',html);el('modal').querySelector('.modal').classList.add('history-modal');
   let t=el('history-body');d.trades.forEach(x=>t.appendChild(rowOfTrade(x)));
  }catch(e){notify(e.message)}
 }
 let refreshing=false;
 async function load(){if(refreshing)return;refreshing=true;try{
- let r=await fetch('/api/state',{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);let d=await r.json();coinData=d.coins;globalMode=d.global_mode||'NORMAL';renderGlobalMode();
- el('max-positions').textContent='Risk managed · max '+d.max_positions;
+ let r=await fetch('/api/state'+(parallelActive?'?mode='+portfolioMode:''),{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);let d=await r.json();coinData=d.coins;globalMode=d.global_mode||'NORMAL';renderGlobalMode();
+ el('max-positions').textContent='Risk managed · max '+d.max_positions+(parallelActive?' per mode · '+portfolioMode:'');
  el('balance').textContent=money(d.balance);el('unreal').textContent=money(d.unrealized);el('unreal').className='value '+cssSigned(d.unrealized);
  el('wins').textContent=d.wins;el('losses').textContent=d.losses;el('winrate').textContent=fmt(d.wins*100/Math.max(d.wins+d.losses,1),1)+'%';el('open-count').textContent=d.open_positions.length+' open position(s)';el('coin-count').textContent=d.coin_count+' pairs';
  const st=d.scanner;const pill=el('scanner-pill');pill.innerHTML='<i class="dot '+(st.status==='RUNNING'?'ok':st.status==='OFFLINE'?'fail':'warn')+'"></i>'+escapeHTML('Scanner: '+st.status);pill.title=st.last_error||'';
  el('scanner-line').textContent='Last successful scan: '+timeUTC(st.last_success)+' UTC | Processed '+st.processed+' | Errors '+st.errors+(st.last_error?' | '+st.last_error:'');
  el('market-status').textContent='Prices: '+(d.market_stale?'STALE'+(d.quote_feed?.last_error?' · '+d.quote_feed.last_error.slice(0,110):''):'fresh')+' · 00:00 UTC base · 15m confirmed signals';
- renderCoins();updateEquityPoints(d.equity_points,(Number(d.wins)||0)+(Number(d.losses)||0)+(Number(d.flats)||0));
+ renderCoins();updateEquityPoints(d.equity_points,(Number(d.wins)||0)+(Number(d.losses)||0)+(Number(d.flats)||0),d.mode_equity_points);
+ if(parallelActive){
+    for(const mode of ['NORMAL','REVERSE']){
+      const s=d.mode_summaries?.[mode];if(!s)continue;
+      el('mode-'+mode.toLowerCase()+'-balance').textContent=money(s.balance);
+      el('mode-'+mode.toLowerCase()+'-cash').textContent='Available collateral '+money(s.available_cash)+' · Open '+s.open;
+    }
+    el('history-mode-label').textContent=portfolioMode;
+ }
  const pbody=el('positions');pbody.replaceChildren();if(!d.open_positions.length)pbody.innerHTML='<tr><td colspan="8" class="empty">No open positions</td></tr>';
- d.open_positions.forEach(p=>{let tr=document.createElement('tr');tr.innerHTML='<td><b>'+escapeHTML(p.symbol)+'</b></td><td>'+p.side+'</td><td>'+p.mode+'</td><td>'+fmt(p.entry,p.entry<1?6:2)+'</td><td>'+fmt(p.stop,p.stop<1?6:2)+'</td><td>'+money(p.capital_used,2)+'</td><td class="'+cssSigned(p.pnl)+'">'+money(p.pnl,3)+'</td><td><button class="btn danger" type="button">Close Trade</button></td>';tr.querySelector('button').disabled=!ownerAuthenticated||pendingCloses.has(p.symbol);tr.querySelector('button').textContent=pendingCloses.has(p.symbol)?'Closing…':'Close Trade';tr.querySelector('button').onclick=()=>doManualClose(p.symbol);pbody.appendChild(tr)});
+ d.open_positions.forEach(p=>{let tr=document.createElement('tr');tr.innerHTML='<td><b>'+escapeHTML(p.symbol)+'</b></td><td>'+p.side+'</td><td>'+p.mode+'</td><td>'+fmt(p.entry,p.entry<1?6:2)+'</td><td>'+fmt(p.stop,p.stop<1?6:2)+'</td><td>'+money(p.capital_used,2)+'</td><td class="'+cssSigned(p.pnl)+'">'+money(p.pnl,3)+'</td><td><button class="btn danger" type="button">Close Trade</button></td>';const closeKey=p.mode+':'+p.symbol;tr.querySelector('button').disabled=!ownerAuthenticated||pendingCloses.has(closeKey);tr.querySelector('button').textContent=pendingCloses.has(closeKey)?'Closing…':'Close Trade';tr.querySelector('button').onclick=()=>doManualClose(p.symbol,p.mode);pbody.appendChild(tr)});
  const recent=el('recent');recent.replaceChildren();if(!d.recent.length)recent.innerHTML='<tr><td colspan="15" class="empty">No closed trades yet</td></tr>';
  d.recent.forEach(t=>recent.appendChild(rowOfTrade(t)));
  }catch(e){el('scanner-pill').innerHTML='<i class="dot fail"></i>Dashboard offline';el('scanner-line').textContent='Dashboard request failed: '+e.message}finally{refreshing=false}}
