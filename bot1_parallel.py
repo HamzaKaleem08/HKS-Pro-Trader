@@ -135,9 +135,10 @@ def open_position(db, mode, symbol, original, score, stop_fraction, quote, now_m
     equity, _ = strategy_equity(db, mode, {p.symbol: p.entry_price for p in existing})
     if equity <= ZERO or wallet.cash <= ZERO:
         return None, "EQUITY"
-    # MAX_POSITION_CASH_FRACTION applied to the strategy ledger, not $2k cash.
-    # Buffer only releases collateral friction; it does not double target risk.
-    reference_cash = max(ZERO, realized_equity(db, mode))
+    # Preserve ORIGINAL declining available-cash sizing on a $1k strategy wallet.
+    # Do not let the extra $1k collateral inflate any subsequent entry size.
+    buffer = COLLATERAL_SEED - STRATEGY_SEED
+    reference_cash = max(ZERO, wallet.cash - buffer)
     notional = min(equity * risk_fraction / stop_fraction,
                    reference_cash * cash_fraction / (ONE + fee_rate))
     if notional <= D("5"):
