@@ -414,7 +414,9 @@ def refresh_live_prices():
         st = db.get(BotState, 1)
         symbols = set(st.market_symbols.split(",")) if st.market_symbols else set()
         symbols.discard("")
-        symbols.update(db.scalars(select(Position.symbol)).all())
+        symbols.update(db.scalars(select(ModePosition.symbol)).all()
+                       if BOT1_PARALLEL_ENABLED else
+                       db.scalars(select(Position.symbol)).all())
     if not symbols:
         return 0  # Deep scan publishes the Top 50 before quote stream starts.
     # Both quote paths use the same public Bitget tickers endpoint.
