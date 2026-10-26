@@ -18,6 +18,12 @@ from bot1_parallel import ModePosition,ModeTrade,ModeWallet,open_pair
 assert app.BOT1_PARALLEL_ENABLED
 app.app.config["TESTING"]=True
 client=app.app.test_client()
+page=client.get("/")
+assert page.status_code==200,page.get_data(as_text=True)[:500]
+html=page.get_data(as_text=True)
+assert 'data-parallel-mode="on"' in html
+assert 'id="equity-chart-other"' in html
+assert 'Reset BOTH' in html
 
 for m in ("NORMAL","REVERSE"):
     v=client.get("/api/state?mode="+m)
