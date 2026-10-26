@@ -1507,6 +1507,9 @@ def cron():
 @app.get("/api/state")
 def state():
     now = utc_ms()
+    mode = str(request.args.get("mode", "NORMAL")).upper()
+    if BOT1_PARALLEL_ENABLED and mode not in B1_MODES:
+        return jsonify({"error": "Unknown mode"}), 400
     with Session() as db:
         st = db.get(BotState, 1)
         # No network I/O in dashboard polling. Prices are saved by scan_once.
@@ -1515,10 +1518,10 @@ def state():
         # Do not label cached snapshots live after the quote thread stops.
         stale = True
         quotes = {}
-        wallet = db.get(Wallet, 1)
+        wallet = (db.get(ModeWallet, mode) if BOT1_PARALLEL_ENABLED else db.get(Wallet, 1))
         dynamic = [x for x in st.market_symbols.split(",") if x][:SYMBOL_COUNT]
         coins = {c.symbol: c for c in db.scalars(select(Coin)).all()}
-        positions = db.scalars(select(Position)).all()
+        positions = (b1_mode_positions(db, mode) if BOT1_PARALLEL_ENABLED else db.scalars(select(Position)).all())
         feed = db.get(QuoteHealth, 1)
         cron_health = db.get(CronHealth, 1)
         # An actual successful quote-stream write, NOT a slower 1m candle scan,
@@ -1528,7 +1531,7 @@ def state():
         stale = quote_age_s is None or quote_age_s > 10
         prices = {p.symbol: coins[p.symbol].last_price
                   for p in positions if p.symbol in coins and coins[p.symbol].last_price is not None}
-        equity, unreal = account_equity(db, prices)
+        equity, unreal = (b1_strategy_equity(db, mode, prices) if BOT1_PARALLEL_ENABLED else account_equity(db, prices))
         outcome = []
         for symbol in dynamic:
             c = coins.get(symbol)
@@ -1536,7 +1539,7 @@ def state():
             daily = c.daily_open if c else None
             today = datetime.fromtimestamp(now / 1000, timezone.utc).date().isoformat()
             pct = ((px / daily) - ONE) * 100 if px and daily and daily > ZERO and c.daily_date == today else None
-            outcome.append({"symbol": symbol, "mode": c.mode if c else "NORMAL",
+            outcome.append({"symbol": symbol, "mode": "BOTH" if BOT1_PARALLEL_ENABLED else (c.mode if c else "NORMAL"),
                             "price": fmt(px), "change": fmt(pct, 3),
                             "score": c.score if c else 0,
                             "trade_score": c.trade_score if c else 0,
@@ -1544,11 +1547,16 @@ def state():
                             "updated": c.updated_ms if c else None,
                             "error": c.error if c else None,
                             "open": any(p.symbol == symbol for p in positions)})
-        trades = db.scalars(select(ClosedTrade).order_by(ClosedTrade.id.desc()).limit(10)).all()
-        win_count = db.scalar(select(func.count()).select_from(ClosedTrade).where(ClosedTrade.net_pnl > ZERO)) or 0
-        loss_count = db.scalar(select(func.count()).select_from(ClosedTrade).where(ClosedTrade.net_pnl < ZERO)) or 0
-        flat_count = db.scalar(select(func.count()).select_from(ClosedTrade).where(ClosedTrade.net_pnl == ZERO)) or 0
-        points = db.scalars(select(EquityPoint).order_by(EquityPoint.id.desc()).limit(350)).all()
+        trades = (db.scalars(select(ModeTrade).where(ModeTrade.mode == mode).order_by(ModeTrade.id.desc()).limit(10)).all()
+                  if BOT1_PARALLEL_ENABLED else db.scalars(select(ClosedTrade).order_by(ClosedTrade.id.desc()).limit(10)).all())
+        win_count = ((db.scalar(select(func.count()).select_from(ModeTrade).where(ModeTrade.mode == mode, ModeTrade.net_pnl > ZERO)) or 0)
+                     if BOT1_PARALLEL_ENABLED else (db.scalar(select(func.count()).select_from(ClosedTrade).where(ClosedTrade.net_pnl > ZERO)) or 0))
+        loss_count = ((db.scalar(select(func.count()).select_from(ModeTrade).where(ModeTrade.mode == mode, ModeTrade.net_pnl < ZERO)) or 0)
+                     if BOT1_PARALLEL_ENABLED else (db.scalar(select(func.count()).select_from(ClosedTrade).where(ClosedTrade.net_pnl < ZERO)) or 0))
+        flat_count = ((db.scalar(select(func.count()).select_from(ModeTrade).where(ModeTrade.mode == mode, ModeTrade.net_pnl == ZERO)) or 0)
+                     if BOT1_PARALLEL_ENABLED else (db.scalar(select(func.count()).select_from(ClosedTrade).where(ClosedTrade.net_pnl == ZERO)) or 0))
+        points = (db.scalars(select(ModeEquity).where(ModeEquity.mode == mode).order_by(ModeEquity.id.desc()).limit(350)).all()
+                  if BOT1_PARALLEL_ENABLED else db.scalars(select(EquityPoint).order_by(EquityPoint.id.desc()).limit(350)).all())
         running_age = (now - st.last_success_ms) // 1000 if st.last_success_ms else None
         if running_age is None:
             if st.last_attempt_ms is None:
@@ -1575,9 +1583,28 @@ def state():
                               "pnl": fmt(upnl, 4), "score": p.score,
                               "mfe_pct": fmt(p.mfe_frac * 100, 2),
                               "mae_pct": fmt(p.mae_frac * 100, 2)})
-        realized = START_BALANCE + (db.scalar(select(func.coalesce(func.sum(ClosedTrade.net_pnl), 0))) or ZERO)
+        realized = (b1_realized_equity(db, mode) if BOT1_PARALLEL_ENABLED else
+                    START_BALANCE + (db.scalar(select(func.coalesce(func.sum(ClosedTrade.net_pnl), 0))) or ZERO))
+        mode_summaries = {}
+        if BOT1_PARALLEL_ENABLED:
+            for m in B1_MODES:
+                w = db.get(ModeWallet, m)
+                m_pos = b1_mode_positions(db, m)
+                m_prices = {p.symbol: coins[p.symbol].last_price for p in m_pos
+                            if p.symbol in coins and coins[p.symbol].last_price is not None}
+                m_equity, m_upnl = b1_strategy_equity(db, m, m_prices)
+                mode_summaries[m] = {
+                    "balance": fmt(b1_realized_equity(db, m), 4),
+                    "equity": fmt(m_equity, 4),
+                    "available_cash": fmt(w.cash, 4),
+                    "unrealized": fmt(m_upnl, 4),
+                    "open": len(m_pos),
+                }
+
         saved_global = db.get(GlobalMode, 1)
-        return jsonify({"now": now, "global_mode": saved_global.mode if saved_global else "NORMAL", "max_positions": MAX_POSITIONS, "market_stale": stale,
+        return jsonify({"now": now, "parallel": BOT1_PARALLEL_ENABLED,
+                        "view_mode": mode, "mode_summaries": mode_summaries,
+                        "global_mode": "BOTH" if BOT1_PARALLEL_ENABLED else (saved_global.mode if saved_global else "NORMAL"), "max_positions": MAX_POSITIONS, "market_stale": stale,
                         "quotes_age_s": round(quote_age_s, 1) if quote_age_s is not None else None,
                         "quote_target_s": 2, "strategy_timeframe": "15m",
                         "quote_feed": {"source": feed.source if feed else None,
