@@ -1643,7 +1643,13 @@ def equity_history():
     Only persisted hks_equity_point balances are exposed; no interpolated data.
     """
     with Session() as db:
-        points = db.scalars(select(EquityPoint).order_by(EquityPoint.id.asc())).all()
+        mode = str(request.args.get("mode", "NORMAL")).upper()
+        if BOT1_PARALLEL_ENABLED and mode not in B1_MODES:
+            return jsonify({"error": "Unknown mode"}), 400
+        points = (db.scalars(select(ModeEquity).where(ModeEquity.mode == mode)
+                  .order_by(ModeEquity.id.asc())).all()
+                  if BOT1_PARALLEL_ENABLED else
+                  db.scalars(select(EquityPoint).order_by(EquityPoint.id.asc())).all())
         return jsonify({"points": [{"t": p.time_ms, "balance": fmt(p.balance, 4)}
                                    for p in points]})
 
@@ -1655,7 +1661,13 @@ def history():
     except ValueError:
         abort(400)
     with Session() as db:
-        trades = db.scalars(select(ClosedTrade).order_by(ClosedTrade.id.desc()).limit(limit)).all()
+        mode = str(request.args.get("mode", "NORMAL")).upper()
+        if BOT1_PARALLEL_ENABLED and mode not in B1_MODES:
+            return jsonify({"error": "Unknown mode"}), 400
+        trades = (db.scalars(select(ModeTrade).where(ModeTrade.mode == mode)
+                  .order_by(ModeTrade.id.desc()).limit(limit)).all()
+                  if BOT1_PARALLEL_ENABLED else
+                  db.scalars(select(ClosedTrade).order_by(ClosedTrade.id.desc()).limit(limit)).all())
         return jsonify({"trades": [view_trade(t) for t in trades]})
 
 
