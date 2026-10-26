@@ -2069,7 +2069,8 @@ function updateEquityPoints(points,totalTrades,modePoints){
 function renderEquity(){
  const source=equityRange==='all'&&equityAllLoadedCount===equityTotalTrades?equityAll:equityRecent;
  drawEquity('equity-chart','equity-summary',source);
- if(parallelActive){
+ // Keep the legacy standalone equity regression harness usable without UI globals.
+ if(typeof parallelActive !== 'undefined' && parallelActive){
    const other=portfolioMode==='NORMAL'?'REVERSE':'NORMAL';
    el('equity-title').textContent=portfolioMode;
    el('equity-other-title').textContent=other;
