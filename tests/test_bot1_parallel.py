@@ -58,6 +58,21 @@ class ParallelTests(unittest.TestCase):
             eq,_=strategy_equity(db,"NORMAL",{"BTCUSDT":D("100")})
             self.assertEqual(eq,D("1000"))
 
+    def test_second_entry_uses_declining_1k_cash_not_buffer(self):
+        self.pair()
+        other=type("Coin",(),{"symbol":"ETHUSDT"})()
+        with self.Session.begin() as db:
+            btc=db.get(ModePosition,("NORMAL","BTCUSDT"))
+            first_margin=btc.margin
+            result=open_pair(db,other,self.signal,D("100"),1860000,FEE,RISK,CAP,5)
+            self.assertEqual(result["NORMAL"][1],"OPEN")
+            second=db.get(ModePosition,("NORMAL","ETHUSDT"))
+            # Original 1k available-cash fraction shrinks after first margin.
+            self.assertLess(second.margin,first_margin)
+            self.assertGreater(second.margin,D("210"))
+            self.assertLess(second.margin,D("230"))
+            self.assertGreater(db.get(ModeWallet,"NORMAL").cash,D("1400"))
+
     def test_close_one_mode_does_not_close_other(self):
         self.pair()
         with self.Session.begin() as db:
