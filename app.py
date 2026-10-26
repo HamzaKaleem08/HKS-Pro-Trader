@@ -1587,6 +1587,7 @@ def state():
         realized = (b1_realized_equity(db, mode) if BOT1_PARALLEL_ENABLED else
                     START_BALANCE + (db.scalar(select(func.coalesce(func.sum(ClosedTrade.net_pnl), 0))) or ZERO))
         mode_summaries = {}
+        mode_equity_points = {}
         if BOT1_PARALLEL_ENABLED:
             for m in B1_MODES:
                 w = db.get(ModeWallet, m)
@@ -1594,6 +1595,10 @@ def state():
                 m_prices = {p.symbol: coins[p.symbol].last_price for p in m_pos
                             if p.symbol in coins and coins[p.symbol].last_price is not None}
                 m_equity, m_upnl = b1_strategy_equity(db, m, m_prices)
+                m_points = db.scalars(select(ModeEquity).where(ModeEquity.mode == m)
+                              .order_by(ModeEquity.id.desc()).limit(350)).all()
+                mode_equity_points[m] = [{"t": q.time_ms, "balance": fmt(q.balance, 4)}
+                                          for q in reversed(m_points)]
                 mode_summaries[m] = {
                     "balance": fmt(b1_realized_equity(db, m), 4),
                     "equity": fmt(m_equity, 4),
@@ -1605,6 +1610,7 @@ def state():
         saved_global = db.get(GlobalMode, 1)
         return jsonify({"now": now, "parallel": BOT1_PARALLEL_ENABLED,
                         "view_mode": mode, "mode_summaries": mode_summaries,
+                        "mode_equity_points": mode_equity_points,
                         "global_mode": "BOTH" if BOT1_PARALLEL_ENABLED else (saved_global.mode if saved_global else "NORMAL"), "max_positions": MAX_POSITIONS, "market_stale": stale,
                         "quotes_age_s": round(quote_age_s, 1) if quote_age_s is not None else None,
                         "quote_target_s": 2, "strategy_timeframe": "15m",
