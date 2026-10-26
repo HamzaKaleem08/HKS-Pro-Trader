@@ -1819,24 +1819,31 @@ function notify(s){showModal('HKS Notice','<p>'+escapeHTML(s)+'</p>')}
 async function post(url,body){let r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});let j=await r.json().catch(()=>({error:'Unexpected server response'}));if(!r.ok)throw Error(j.error||('HTTP '+r.status));return j}
 function openTools(){
  if(!ownerAuthenticated){notify('Owner Login required to reset the paper account.');return}
- showModal('Reset 1K','<p class="small muted">Mode changes affect NEW trades only. Existing open positions keep their opening mode. The scanner starts on website visit; external Cron GET /wake performs a direct completed-candle scan even if no browser is open. /api/cron remains token-protected.</p><p class="small negative">Reset 1K deletes paper positions, trade history and wallet performance only. Market scores, SMC/candle analysis and coin modes are preserved.</p><label class="field">Reset password<input type="password" id="reset-pass" autocomplete="off"></label><label class="field">Type RESET 1K<input id="reset-confirm" placeholder="RESET 1K"></label><button class="btn danger" onclick="doReset()" '+(resetReady?'':'disabled')+'>Reset 1K</button>');
+ const warning = parallelActive
+ ? 'Reset BOTH deletes old Bot 1 history and both NORMAL/REVERSE accounts. Both restart with $1,000 strategy equity and $2,000 virtual collateral. Bot 2 remains untouched. Save your old screenshots BEFORE confirming.'
+ : 'Reset 1K deletes paper positions, history and wallet performance only. Market scores stay intact.';
+ const confirm = parallelActive?'RESET BOTH':'RESET 1K';
+ showModal(parallelActive?'Reset Both Modes':'Reset 1K',
+ '<p class="small negative">'+escapeHTML(warning)+'</p><label class="field">Reset password<input type="password" id="reset-pass" autocomplete="off"></label>'+
+ '<label class="field">Type '+escapeHTML(confirm)+'<input id="reset-confirm" placeholder="'+escapeHTML(confirm)+'"></label>'+
+ '<button class="btn danger" onclick="doReset()" '+(resetReady?'':'disabled')+'>Confirm Reset</button>');
 }
-async function doManualClose(symbol){
+async function doManualClose(symbol,mode='NORMAL'){
  if(!ownerAuthenticated){notify('Owner Login required.');return}
- if(!/^[A-Z0-9]+USDT$/.test(symbol)||pendingCloses.has(symbol))return;
- pendingCloses.add(symbol);
+ const key=mode+':'+symbol;
+ if(!/^[A-Z0-9]+USDT$/.test(symbol)||pendingCloses.has(key))return;
+ pendingCloses.add(key);
  try{
-  // One-click: request starts immediately. No modal or password per trade.
-  const result=await post('/api/position/'+symbol+'/close',{});
+  const result=await post('/api/position/'+symbol+'/close',{mode});
   await load();
-  notify(symbol+' manually closed at '+money(result.exit_price,6)+' · Net '+money(result.net_pnl,4));
+  notify(mode+' '+symbol+' manually closed at '+money(result.exit_price,6)+' · Net '+money(result.net_pnl,4));
  }catch(e){notify(e.message)}
- finally{pendingCloses.delete(symbol)}
+ finally{pendingCloses.delete(key)}
 }
 function updateOwnerUI(){
  const button=el('owner-button');
  button.textContent=ownerAuthenticated?'Owner · Logout':'Owner Login';
- document.querySelectorAll('.global-switch button').forEach(x=>x.disabled=!ownerAuthenticated);
+ document.querySelectorAll('.global-switch button').forEach(x=>x.disabled=!parallelActive&&!ownerAuthenticated);
  document.querySelectorAll('.mode-switch button').forEach(x=>x.disabled=!ownerAuthenticated);
  document.querySelectorAll('#positions button').forEach(x=>x.disabled=!ownerAuthenticated);
 }
@@ -1865,13 +1872,26 @@ async function doOwnerLogout(){
   ownerAuthenticated=false;hideModal();updateOwnerUI();renderCoins();await load();
  }catch(e){notify(e.message)}
 }
-async function doReset(){try{let p=el('reset-pass').value,confirm=el('reset-confirm').value;if(!window.confirm('Delete ALL paper account data and reset exactly to $1,000?'))return;await post('/api/reset',{password:p,confirm});hideModal();await load()}catch(e){notify(e.message)}}
+async function doReset(){
+ try{
+  const password=el('reset-pass').value,confirm=el('reset-confirm').value;
+  const expected=parallelActive?'RESET BOTH':'RESET 1K';
+  if(confirm!==expected){notify('Type '+expected+' exactly.');return}
+  if(!window.confirm(parallelActive?'Delete legacy Bot 1 history and reset BOTH portfolios? This cannot be undone.':'Delete ALL Bot 1 paper account data and reset to $1,000?'))return;
+  await post('/api/reset',{password,confirm});hideModal();equityAll=[];equityAllLoadedCount=-1;await load();
+ }catch(e){notify(e.message)}
+}
 async function changeMode(symbol,mode,evt){evt.stopPropagation();if(!ownerAuthenticated){notify('Owner Login required.');return}try{await post('/api/mode/'+symbol,{mode});const c=coinData.find(c=>c.symbol===symbol);if(c)c.mode=mode;renderCoins()}catch(e){notify(e.message)}}
 function renderGlobalMode(){
- el('global-normal').classList.toggle('selected',globalMode==='NORMAL');
- el('global-reverse').classList.toggle('selected',globalMode==='REVERSE');
+ const displayMode=parallelActive?portfolioMode:globalMode;
+ el('global-normal').classList.toggle('selected',displayMode==='NORMAL');
+ el('global-reverse').classList.toggle('selected',displayMode==='REVERSE');
 }
 async function changeGlobalMode(mode){
+ if(parallelActive){
+   if(!['NORMAL','REVERSE'].includes(mode))return;
+   portfolioMode=mode;equityAll=[];equityAllLoadedCount=-1;renderGlobalMode();await load();return;
+ }
  if(!ownerAuthenticated){notify('Owner Login required.');return}
  if(!['NORMAL','REVERSE'].includes(mode))return;
  if(!window.confirm('Set ALL coins to '+mode+'? This clears custom coin modes for future entries. Open trades remain unchanged.'))return;
@@ -2108,9 +2128,9 @@ function showTrade(t){
 }
 async function showHistory(){
  try{
-  let r=await fetch('/api/history?limit=100');let d=await r.json();selectedHistory=d.trades;
+  let r=await fetch('/api/history?limit=100'+(parallelActive?'&mode='+portfolioMode:''));let d=await r.json();selectedHistory=d.trades;
   let html='<p class="small muted">Latest '+d.trades.length+' closed trades. Net % is relative to original capital used (1x notional). Scroll sideways for all fields; click a row for details.</p><div class="tablewrap" style="max-height:60vh"><table><thead><tr><th>Coin</th><th>Side</th><th>Mode</th><th>Qty</th><th>Capital Used</th><th>Entry</th><th>Exit</th><th>Exit Reason</th><th>Fees</th><th>Net</th><th>Net %</th><th>MFE</th><th>MAE</th><th>Duration</th><th>UTC</th></tr></thead><tbody id="history-body"></tbody></table></div>';
-  showModal('Trade History',html);el('modal').querySelector('.modal').classList.add('history-modal');
+  showModal(parallelActive?portfolioMode+' Trade History':'Trade History',html);el('modal').querySelector('.modal').classList.add('history-modal');
   let t=el('history-body');d.trades.forEach(x=>t.appendChild(rowOfTrade(x)));
  }catch(e){notify(e.message)}
 }
